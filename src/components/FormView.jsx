@@ -9,6 +9,8 @@ import {
   Info, Plus, Minus, RotateCcw
 } from 'lucide-react'
 import DigitalClock from './DigitalClock'
+import ConfirmationModal from './ConfirmationModal'
+import OnboardingTour from './OnboardingTour'
 import { registrarSesion } from '../services/api'
 import { playAlertSound } from '../utils/alertSound'
 import {
@@ -52,6 +54,26 @@ const itemVariants = {
 const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, isDarkMode, toggleTheme }) => {
   const [isSending, setIsSending] = useState(false)
   const [isSent, setIsSent] = useState(false)
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [submittedData, setSubmittedData] = useState(null)
+
+  // ── Tour Guiado Onboarding ──
+  const [isTourOpen, setIsTourOpen] = useState(() => {
+    // Si el docente nunca ha visto el tour en este navegador, activarlo por defecto
+    const tourVisto = localStorage.getItem('epic_tour_visto')
+    return tourVisto !== 'true'
+  })
+  const [tourStepIndex, setTourStepIndex] = useState(0)
+
+  const handleCloseTour = useCallback(() => {
+    setIsTourOpen(false)
+    localStorage.setItem('epic_tour_visto', 'true')
+  }, [])
+
+  const handleOpenTour = useCallback(() => {
+    setTourStepIndex(0)
+    setIsTourOpen(true)
+  }, [])
 
   // ── Duración de la sesión ──
   const [duracionHoras, setDuracionHoras] = useState(1)
@@ -327,6 +349,8 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
 
       if (result.success) {
         setIsSent(true)
+        setSubmittedData(payload)
+        setShowSuccessModal(true)
         showToast('success', '✅ Registro enviado exitosamente a Google Sheets')
 
         // Incrementar el correlativo de registro automáticamente
@@ -343,6 +367,16 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       setIsSending(false)
     }
   }
+
+  // ── Preparar formulario para un nuevo registro de clase ──
+  const handleNuevoRegistro = useCallback(() => {
+    setShowSuccessModal(false)
+    setIsSent(false)
+    setSessionState('idle')
+    setFormData(getAutomatedInitialFormData())
+    saveFormData(null)
+    showToast('info', 'Formulario listo para un nuevo registro de clase')
+  }, [getAutomatedInitialFormData, saveFormData, showToast])
 
   return (
     <motion.div
@@ -404,6 +438,21 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
             <div className="flex items-center gap-4">
               <DigitalClock isDarkMode={isDarkMode} />
               <div className={`flex items-center gap-2 border-l pl-3 ${isDarkMode ? 'border-white/15' : 'border-slate-300'}`}>
+                {/* Botón de Guía Interactiva */}
+                <button
+                  type="button"
+                  onClick={handleOpenTour}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border-2 transition-all duration-300 ${
+                    isDarkMode
+                      ? 'bg-red-950/60 border-red-800/40 text-red-300 hover:bg-red-900/60 hover:text-white shadow-md'
+                      : 'bg-red-50 border-red-200 text-red-900 hover:bg-red-100 shadow-sm'
+                  }`}
+                  title="Ver Guía Instructiva del Sistema"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-red-500 animate-pulse" />
+                  <span className="hidden sm:inline">Guía Rápida</span>
+                </button>
+
                 <button
                   onClick={toggleTheme}
                   className={`p-2.5 rounded-xl border-2 transition-all duration-300 ${isDarkMode
@@ -528,306 +577,312 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
               }`}>
               <div className="p-5 sm:p-7 space-y-6">
 
-                {/* Row 1: N°, Aula, Fecha */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-numero">
-                      <span><Hash className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> N° de Registro</span>
-                      <span className="text-[10px] text-emerald-500 font-bold">Auto-correlativo</span>
-                    </label>
-                    <input
-                      type="text"
-                      id="campo-numero"
-                      value={formData.numero}
-                      readOnly
-                      className={`${isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'} font-mono font-bold !bg-slate-500/10 cursor-not-allowed`}
-                    />
+                {/* Row 1: N°, Aula, Fecha (tour-step-1) */}
+                <div id="tour-step-1" className="space-y-4 p-2 rounded-2xl transition-all">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-numero">
+                        <span><Hash className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> N° de Registro</span>
+                        <span className="text-[10px] text-emerald-500 font-bold">Auto-correlativo</span>
+                      </label>
+                      <input
+                        type="text"
+                        id="campo-numero"
+                        value={formData.numero}
+                        readOnly
+                        className={`${isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'} font-mono font-bold !bg-slate-500/10 cursor-not-allowed`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-aula">
+                        <span><MapPin className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Aula / Laboratorio</span>
+                        {formData.aulaLab && <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                      </label>
+                      <input
+                        type="text"
+                        id="campo-aula"
+                        value={formData.aulaLab}
+                        onChange={(e) => updateField('aulaLab', e.target.value)}
+                        placeholder="Ej. Aula 301, Lab. Cómputo 2"
+                        className={isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'}
+                      />
+                    </div>
+
+                    <div>
+                      <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-fecha">
+                        <span><Calendar className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Fecha</span>
+                        <span className={`text-[10px] font-semibold ${isDarkMode ? 'text-maroon-400' : 'text-red-800'}`}>Auto-calcula semana</span>
+                      </label>
+                      <input
+                        type="date"
+                        id="campo-fecha"
+                        value={formData.fecha}
+                        onChange={(e) => updateField('fecha', e.target.value)}
+                        className={isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'}
+                      />
+                    </div>
                   </div>
 
+                  {/* Row 2: Asignatura (incluye Código, Nombre y Sección) */}
                   <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-aula">
-                      <span><MapPin className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Aula / Laboratorio</span>
-                      {formData.aulaLab && <Check className="w-3.5 h-3.5 text-emerald-500" />}
-                    </label>
-                    <input
-                      type="text"
-                      id="campo-aula"
-                      value={formData.aulaLab}
-                      onChange={(e) => updateField('aulaLab', e.target.value)}
-                      placeholder="Ej. Aula 301, Lab. Cómputo 2"
-                      className={isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'}
-                    />
-                  </div>
-
-                  <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-fecha">
-                      <span><Calendar className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Fecha</span>
-                      <span className={`text-[10px] font-semibold ${isDarkMode ? 'text-maroon-400' : 'text-red-800'}`}>Auto-calcula semana</span>
-                    </label>
-                    <input
-                      type="date"
-                      id="campo-fecha"
-                      value={formData.fecha}
-                      onChange={(e) => updateField('fecha', e.target.value)}
-                      className={isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'}
-                    />
-                  </div>
-                </div>
-
-                {/* Row 2: Asignatura (incluye Código, Nombre y Sección) */}
-                <div>
-                  <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-asignatura">
-                    <span><BookMarked className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Asignatura y Sección</span>
-                    {formData.asignatura && <Check className="w-3.5 h-3.5 text-emerald-500" />}
-                  </label>
-                  <select
-                    id="campo-asignatura"
-                    value={formData.asignatura}
-                    onChange={(e) => updateField('asignatura', e.target.value)}
-                    className={isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'}
-                  >
-                    <option value="">Seleccione la asignatura y sección</option>
-                    {(docente.cursos || []).map((curso) => (
-                      <option key={curso} value={curso}>{curso}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Row 3: Unidad, Semana Académica (Autocalculadas del Semestre 2026-II) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-unidad">
-                      <span><Layers className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Unidad Académica</span>
-                      <span className={`text-[10px] font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>6 semanas c/u</span>
+                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-asignatura">
+                      <span><BookMarked className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Asignatura y Sección</span>
+                      {formData.asignatura && <Check className="w-3.5 h-3.5 text-emerald-500" />}
                     </label>
                     <select
-                      id="campo-unidad"
-                      value={formData.unidad}
-                      onChange={(e) => updateField('unidad', e.target.value)}
+                      id="campo-asignatura"
+                      value={formData.asignatura}
+                      onChange={(e) => updateField('asignatura', e.target.value)}
                       className={isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'}
                     >
-                      <option value="">Seleccione Unidad</option>
-                      <option value="I">Unidad I</option>
-                      <option value="II">Unidad II</option>
-                      <option value="III">Unidad III</option>
+                      <option value="">Seleccione la asignatura y sección</option>
+                      {(docente.cursos || []).map((curso) => (
+                        <option key={curso} value={curso}>{curso}</option>
+                      ))}
                     </select>
                   </div>
+                </div>
 
+                {/* Row 3 y 4: Unidad, Semana y Tema (tour-step-2) */}
+                <div id="tour-step-2" className="space-y-4 p-2 rounded-2xl transition-all">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-unidad">
+                        <span><Layers className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Unidad Académica</span>
+                        <span className={`text-[10px] font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>6 semanas c/u</span>
+                      </label>
+                      <select
+                        id="campo-unidad"
+                        value={formData.unidad}
+                        onChange={(e) => updateField('unidad', e.target.value)}
+                        className={isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'}
+                      >
+                        <option value="">Seleccione Unidad</option>
+                        <option value="I">Unidad I</option>
+                        <option value="II">Unidad II</option>
+                        <option value="III">Unidad III</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-semana">
+                        <span><Calendar className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> N° de Semana Académica</span>
+                        <span className={`text-[10px] font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>18 semanas en total</span>
+                      </label>
+                      <select
+                        id="campo-semana"
+                        value={formData.semanaAcademica}
+                        onChange={(e) => updateField('semanaAcademica', e.target.value)}
+                        className={isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'}
+                      >
+                        <option value="">Seleccione Semana</option>
+                        {Array.from({ length: SEMESTRE_CONFIG.totalSemanas }, (_, i) => {
+                          const semNum = i + 1
+                          const esFlorales = semNum === SEMESTRE_CONFIG.semanaJuegosFlorales
+                          return (
+                            <option key={semNum} value={semNum}>
+                              Semana {semNum} {esFlorales ? '— (Juegos Florales / Recup.)' : ''}
+                            </option>
+                          )
+                        })}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Row 4: Tema Programado */}
                   <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-semana">
-                      <span><Calendar className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> N° de Semana Académica</span>
-                      <span className={`text-[10px] font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>18 semanas en total</span>
+                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-tema">
+                      <span><FileText className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Tema Programado en el Sílabo</span>
+                      {formData.temaProgramado && <Check className="w-3.5 h-3.5 text-emerald-500" />}
                     </label>
-                    <select
-                      id="campo-semana"
-                      value={formData.semanaAcademica}
-                      onChange={(e) => updateField('semanaAcademica', e.target.value)}
-                      className={isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'}
-                    >
-                      <option value="">Seleccione Semana</option>
-                      {Array.from({ length: SEMESTRE_CONFIG.totalSemanas }, (_, i) => {
-                        const semNum = i + 1
-                        const esFlorales = semNum === SEMESTRE_CONFIG.semanaJuegosFlorales
+                    <textarea
+                      id="campo-tema"
+                      value={formData.temaProgramado}
+                      onChange={(e) => updateField('temaProgramado', e.target.value)}
+                      placeholder="Describa el tema o actividad a desarrollar según el sílabo..."
+                      rows={3}
+                      className={isDarkMode ? 'textarea-institutional-dark' : 'textarea-institutional-light'}
+                    />
+                  </div>
+                </div>
+
+                {/* Row 5 y 6: Recursos y Asistencia (tour-step-3) */}
+                <div id="tour-step-3" className="space-y-6 p-2 rounded-2xl transition-all">
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                      <label className={`label-institutional !mb-0 ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`}>
+                        <MonitorPlay className="w-3.5 h-3.5 inline mr-1 text-maroon-500" />
+                        Recursos Utilizados
+                      </label>
+
+                      {/* Botones de acción rápida para recursos */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={aplicarRecursosHabituales}
+                          className={`text-xs px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition-all ${isDarkMode
+                            ? 'bg-maroon-800/40 text-maroon-300 hover:bg-maroon-800/70 border border-maroon-700/50'
+                            : 'bg-red-900/10 text-red-900 hover:bg-red-900/20 border-2 border-red-900/20'
+                            }`}
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          Habituales
+                        </button>
+                        <button
+                          type="button"
+                          onClick={limpiarRecursos}
+                          className="text-xs px-2 py-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                          title="Limpiar selección"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <p className={`text-xs mb-3 font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                      Seleccione los recursos que utilizará en la clase
+                    </p>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      {RECURSOS_OPTIONS.map((recurso) => {
+                        const isSelected = formData.recursos.includes(recurso.id)
                         return (
-                          <option key={semNum} value={semNum}>
-                            Semana {semNum} {esFlorales ? '— (Juegos Florales / Recup.)' : ''}
-                          </option>
+                          <motion.label
+                            key={recurso.id}
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            htmlFor={`recurso-${recurso.id}`}
+                            className={`
+                              flex items-center gap-2.5 px-3.5 py-3 rounded-2xl cursor-pointer
+                              border-2 transition-all duration-200 select-none
+                              ${isSelected
+                                ? isDarkMode
+                                  ? 'border-maroon-500 bg-maroon-950/70 shadow-lg shadow-maroon-950/40 text-white'
+                                  : 'border-maroon-600 bg-maroon-50 text-maroon-950 font-bold shadow-md shadow-maroon-700/10 ring-2 ring-maroon-600/15'
+                                : isDarkMode
+                                  ? 'border-slate-800 bg-slate-800/60 hover:border-slate-700 text-slate-300'
+                                  : 'border-slate-300 bg-slate-50 hover:bg-white hover:border-slate-400 text-slate-800 font-semibold shadow-xs'
+                              }
+                            `}
+                          >
+                            <input
+                              type="checkbox"
+                              id={`recurso-${recurso.id}`}
+                              checked={isSelected}
+                              onChange={() => toggleRecurso(recurso.id)}
+                              className="sr-only"
+                            />
+                            <div className={`
+                              w-5 h-5 rounded-lg border-2 flex items-center justify-center flex-shrink-0
+                              transition-all duration-200
+                              ${isSelected
+                                ? 'bg-maroon-600 border-maroon-600 text-white'
+                                : 'border-slate-400/50 bg-transparent'
+                              }
+                            `}>
+                              {isSelected && (
+                                <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                            </div>
+                            <span className="text-xs leading-tight">
+                              <span className="mr-1.5">{recurso.icon}</span>
+                              <span className="font-semibold">{recurso.label}</span>
+                            </span>
+                          </motion.label>
                         )
                       })}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Row 4: Tema Programado */}
-                <div>
-                  <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-tema">
-                    <span><FileText className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Tema Programado en el Sílabo</span>
-                    {formData.temaProgramado && <Check className="w-3.5 h-3.5 text-emerald-500" />}
-                  </label>
-                  <textarea
-                    id="campo-tema"
-                    value={formData.temaProgramado}
-                    onChange={(e) => updateField('temaProgramado', e.target.value)}
-                    placeholder="Describa el tema o actividad a desarrollar según el sílabo..."
-                    rows={3}
-                    className={isDarkMode ? 'textarea-institutional-dark' : 'textarea-institutional-light'}
-                  />
-                </div>
-
-                {/* Row 5: Recursos Utilizados con Chips y Presets */}
-                <div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <label className={`label-institutional !mb-0 ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`}>
-                      <MonitorPlay className="w-3.5 h-3.5 inline mr-1 text-maroon-500" />
-                      Recursos Utilizados
-                    </label>
-
-                    {/* Botones de acción rápida para recursos */}
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={aplicarRecursosHabituales}
-                        className={`text-xs px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition-all ${isDarkMode
-                          ? 'bg-maroon-800/40 text-maroon-300 hover:bg-maroon-800/70 border border-maroon-700/50'
-                          : 'bg-red-900/10 text-red-900 hover:bg-red-900/20 border-2 border-red-900/20'
-                          }`}
-                      >
-                        <Sparkles className="w-3 h-3" />
-                        Habituales
-                      </button>
-                      <button
-                        type="button"
-                        onClick={limpiarRecursos}
-                        className="text-xs px-2 py-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                        title="Limpiar selección"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                      </button>
                     </div>
                   </div>
 
-                  <p className={`text-xs mb-3 font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Seleccione los recursos que utilizará en la clase
-                  </p>
+                  {/* Row 6: N° Estudiantes + Validación */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-estudiantes">
+                        <span><Users className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> N° de Estudiantes Asistentes</span>
+                        {formData.numEstudiantes && <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                      </label>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                    {RECURSOS_OPTIONS.map((recurso) => {
-                      const isSelected = formData.recursos.includes(recurso.id)
-                      return (
-                        <motion.label
-                          key={recurso.id}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          htmlFor={`recurso-${recurso.id}`}
-                          className={`
-                            flex items-center gap-2.5 px-3.5 py-3 rounded-2xl cursor-pointer
-                            border-2 transition-all duration-200 select-none
-                            ${isSelected
-                              ? isDarkMode
-                                ? 'border-maroon-500 bg-maroon-950/70 shadow-lg shadow-maroon-950/40 text-white'
-                                : 'border-maroon-600 bg-maroon-50 text-maroon-950 font-bold shadow-md shadow-maroon-700/10 ring-2 ring-maroon-600/15'
-                              : isDarkMode
-                                ? 'border-slate-800 bg-slate-800/60 hover:border-slate-700 text-slate-300'
-                                : 'border-slate-300 bg-slate-50 hover:bg-white hover:border-slate-400 text-slate-800 font-semibold shadow-xs'
-                            }
-                          `}
-                        >
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
                           <input
-                            type="checkbox"
-                            id={`recurso-${recurso.id}`}
-                            checked={isSelected}
-                            onChange={() => toggleRecurso(recurso.id)}
-                            className="sr-only"
+                            type="number"
+                            id="campo-estudiantes"
+                            value={formData.numEstudiantes}
+                            onChange={(e) => updateField('numEstudiantes', e.target.value)}
+                            placeholder="Ej. 35"
+                            min="0"
+                            max="200"
+                            className={`${isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'} font-mono font-semibold`}
                           />
-                          <div className={`
-                            w-5 h-5 rounded-lg border-2 flex items-center justify-center flex-shrink-0
-                            transition-all duration-200
-                            ${isSelected
-                              ? 'bg-maroon-600 border-maroon-600 text-white'
-                              : 'border-slate-400/50 bg-transparent'
-                            }
-                          `}>
-                            {isSelected && (
-                              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
+                          {/* Stepper buttons */}
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => ajustarAsistencia(-1)}
+                              className={`p-3 rounded-xl border-2 transition-all ${isDarkMode ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 shadow-sm'}`}
+                              title="Restar 1"
+                            >
+                              <Minus className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => ajustarAsistencia(1)}
+                              className={`p-3 rounded-xl border-2 transition-all ${isDarkMode ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 shadow-sm'}`}
+                              title="Sumar 1"
+                            >
+                              <Plus className="w-4 h-4" />
+                            </button>
                           </div>
-                          <span className="text-xs leading-tight">
-                            <span className="mr-1.5">{recurso.icon}</span>
-                            <span className="font-semibold">{recurso.label}</span>
-                          </span>
-                        </motion.label>
-                      )
-                    })}
-                  </div>
-                </div>
+                        </div>
 
-                {/* Row 6: N° Estudiantes + Validación */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-estudiantes">
-                      <span><Users className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> N° de Estudiantes Asistentes</span>
-                      {formData.numEstudiantes && <Check className="w-3.5 h-3.5 text-emerald-500" />}
-                    </label>
-
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          id="campo-estudiantes"
-                          value={formData.numEstudiantes}
-                          onChange={(e) => updateField('numEstudiantes', e.target.value)}
-                          placeholder="Ej. 35"
-                          min="0"
-                          max="200"
-                          className={`${isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'} font-mono font-semibold`}
-                        />
-                        {/* Stepper buttons */}
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => ajustarAsistencia(-1)}
-                            className={`p-3 rounded-xl border-2 transition-all ${isDarkMode ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 shadow-sm'}`}
-                            title="Restar 1"
-                          >
-                            <Minus className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => ajustarAsistencia(1)}
-                            className={`p-3 rounded-xl border-2 transition-all ${isDarkMode ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 shadow-sm'}`}
-                            title="Sumar 1"
-                          >
-                            <Plus className="w-4 h-4" />
-                          </button>
+                        {/* Presets rápidos de asistencia */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className={`text-[10px] font-semibold mr-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Rápido:</span>
+                          {PRESETS_ASISTENCIA.map((qty) => (
+                            <button
+                              key={qty}
+                              type="button"
+                              onClick={() => updateField('numEstudiantes', String(qty))}
+                              className={`text-[11px] px-2 py-0.5 rounded-lg border font-mono transition-all ${formData.numEstudiantes === String(qty)
+                                ? 'bg-maroon-700 text-white border-maroon-700'
+                                : isDarkMode
+                                  ? 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
+                                  : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
+                                }`}
+                            >
+                              {qty}
+                            </button>
+                          ))}
                         </div>
                       </div>
-
-                      {/* Presets rápidos de asistencia */}
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className={`text-[10px] font-semibold mr-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Rápido:</span>
-                        {PRESETS_ASISTENCIA.map((qty) => (
-                          <button
-                            key={qty}
-                            type="button"
-                            onClick={() => updateField('numEstudiantes', String(qty))}
-                            className={`text-[11px] px-2 py-0.5 rounded-lg border font-mono transition-all ${formData.numEstudiantes === String(qty)
-                              ? 'bg-maroon-700 text-white border-maroon-700'
-                              : isDarkMode
-                                ? 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
-                                : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
-                              }`}
-                          >
-                            {qty}
-                          </button>
-                        ))}
-                      </div>
                     </div>
-                  </div>
 
-                  <div>
-                    <label className={`label-institutional ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`}>
-                      <ClipboardCheck className="w-3.5 h-3.5 inline mr-1 text-maroon-500" />
-                      Validación de la Sesión
-                    </label>
-                    <div className={`
-                      flex items-center gap-2.5 px-4 py-3 rounded-xl border-2
-                      ${sessionState === 'finished'
-                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
-                        : isDarkMode
-                          ? 'bg-slate-800/60 border-slate-700 text-slate-400'
-                          : 'bg-slate-50 border-slate-200 text-slate-500'
-                      }
-                    `}>
+                    <div>
+                      <label className={`label-institutional ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`}>
+                        <ClipboardCheck className="w-3.5 h-3.5 inline mr-1 text-maroon-500" />
+                        Validación de la Sesión
+                      </label>
                       <div className={`
-                        w-3 h-3 rounded-full
-                        ${sessionState === 'finished' ? 'bg-amber-400 animate-pulse' : 'bg-slate-400'}
-                      `} />
-                      <span className="text-sm font-semibold">
-                        {sessionState === 'finished' ? 'Pendiente de Validación por Dirección' : 'Sin registrar'}
-                      </span>
-                      <Lock className="w-3.5 h-3.5 opacity-50 ml-auto" />
+                        flex items-center gap-2.5 px-4 py-3 rounded-xl border-2
+                        ${sessionState === 'finished'
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
+                          : isDarkMode
+                            ? 'bg-slate-800/60 border-slate-700 text-slate-400'
+                            : 'bg-slate-50 border-slate-200 text-slate-500'
+                        }
+                      `}>
+                        <div className={`
+                          w-3 h-3 rounded-full
+                          ${sessionState === 'finished' ? 'bg-amber-400 animate-pulse' : 'bg-slate-400'}
+                        `} />
+                        <span className="text-sm font-semibold">
+                          {sessionState === 'finished' ? 'Pendiente de Validación por Dirección' : 'Sin registrar'}
+                        </span>
+                        <Lock className="w-3.5 h-3.5 opacity-50 ml-auto" />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -856,162 +911,159 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
               <div className={`border-t-2 px-5 sm:px-7 py-5 transition-colors duration-500 ${isDarkMode ? 'border-white/10 bg-black/20' : 'border-slate-200 bg-slate-50'
                 }`}>
 
-                {/* ── Duración de la sesión (Solo visible en IDLE) ── */}
-                {sessionState === 'idle' && (
-                  <div className={`mb-5 p-4 sm:p-5 rounded-2xl border-2 border-dashed transition-all ${isDarkMode ? 'border-maroon-500/30 bg-maroon-950/20' : 'border-red-800/30 bg-white shadow-sm'
-                    }`}>
-                    <label className={`label-institutional flex items-center gap-1.5 mb-3 ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`}>
-                      <Timer className="w-4 h-4 text-maroon-500" />
-                      Duración Estimada de la Clase
-                      <span className="text-slate-400 font-normal text-[11px] ml-1">
-                        (Recibirás una alerta 10 min antes del fin)
-                      </span>
-                    </label>
-                    <div className="flex flex-wrap items-center gap-4">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          id="campo-duracion-horas"
-                          value={duracionHoras}
-                          onChange={(e) => setDuracionHoras(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                          min="0"
-                          max="12"
-                          className={`${isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'} text-center !py-2.5 w-20 font-mono font-bold`}
-                        />
-                        <span className={`text-sm font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>hora(s)</span>
-                      </div>
+                {/* ── Duración de la sesión (tour-step-4) ── */}
+                <div id="tour-step-4" className="space-y-4">
+                  {sessionState === 'idle' && (
+                    <div className={`mb-5 p-4 sm:p-5 rounded-2xl border-2 border-dashed transition-all ${isDarkMode ? 'border-maroon-500/30 bg-maroon-950/20' : 'border-red-800/30 bg-white shadow-sm'
+                      }`}>
+                      <label className={`label-institutional flex items-center gap-1.5 mb-3 ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`}>
+                        <Timer className="w-4 h-4 text-maroon-500" />
+                        Duración Estimada de la Clase
+                        <span className="text-slate-400 font-normal text-[11px] ml-1">
+                          (Recibirás una alerta 10 min antes del fin)
+                        </span>
+                      </label>
+                      <div className="flex flex-wrap items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            id="campo-duracion-horas"
+                            value={duracionHoras}
+                            onChange={(e) => setDuracionHoras(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                            min="0"
+                            max="12"
+                            className={`${isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'} text-center !py-2.5 w-20 font-mono font-bold`}
+                          />
+                          <span className={`text-sm font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>hora(s)</span>
+                        </div>
 
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          id="campo-duracion-minutos"
-                          value={duracionMinutos}
-                          onChange={(e) => setDuracionMinutos(Math.min(59, Math.max(0, parseInt(e.target.value, 10) || 0)))}
-                          min="0"
-                          max="59"
-                          className={`${isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'} text-center !py-2.5 w-20 font-mono font-bold`}
-                        />
-                        <span className={`text-sm font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>minuto(s)</span>
-                      </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            id="campo-duracion-minutos"
+                            value={duracionMinutos}
+                            onChange={(e) => setDuracionMinutos(Math.min(59, Math.max(0, parseInt(e.target.value, 10) || 0)))}
+                            min="0"
+                            max="59"
+                            className={`${isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'} text-center !py-2.5 w-20 font-mono font-bold`}
+                          />
+                          <span className={`text-sm font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>minuto(s)</span>
+                        </div>
 
-                      <div className="ml-auto flex items-center gap-1.5 px-3 py-2 rounded-xl bg-maroon-500/10 border border-maroon-500/20">
-                        {notificationPermission === 'granted' ? (
-                          <>
-                            <Bell className="w-4 h-4 text-maroon-500" />
-                            <span className={`text-xs font-semibold ${isDarkMode ? 'text-maroon-300' : 'text-maroon-700'}`}>
-                              Alertas con sonido activas
-                            </span>
-                          </>
-                        ) : notificationPermission === 'denied' ? (
-                          <>
-                            <Bell className="w-4 h-4 text-slate-400" />
-                            <span className="text-xs font-medium text-slate-500">Alertas bloqueadas en navegador</span>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => Notification.requestPermission().then((p) => setNotificationPermission(p))}
-                            className="flex items-center gap-1.5 text-xs font-bold text-maroon-600 hover:text-maroon-800 transition-colors"
-                          >
-                            <BellRing className="w-4 h-4 animate-bounce" />
-                            Activar alertas de navegador
-                          </button>
-                        )}
+                        <div className="ml-auto flex items-center gap-1.5 px-3 py-2 rounded-xl bg-maroon-500/10 border border-maroon-500/20">
+                          {notificationPermission === 'granted' ? (
+                            <>
+                              <Bell className="w-4 h-4 text-maroon-500" />
+                              <span className={`text-xs font-semibold ${isDarkMode ? 'text-maroon-300' : 'text-maroon-700'}`}>
+                                Alertas con sonido activas
+                              </span>
+                            </>
+                          ) : notificationPermission === 'denied' ? (
+                            <>
+                              <Bell className="w-4 h-4 text-slate-400" />
+                              <span className="text-xs font-medium text-slate-500">Alertas bloqueadas en navegador</span>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => Notification.requestPermission().then((p) => setNotificationPermission(p))}
+                              className="flex items-center gap-1.5 text-xs font-bold text-maroon-600 hover:text-maroon-800 transition-colors"
+                            >
+                              <BellRing className="w-4 h-4 animate-bounce" />
+                              Activar alertas de navegador
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
+                  )}
+
+                  {/* Time Display Row */}
+                  <div className="flex flex-wrap items-center gap-3 mb-4">
+                    <TimeDisplay
+                      isDarkMode={isDarkMode}
+                      label="Hora de Inicio"
+                      value={formData.horaInicio}
+                      active={sessionState === 'started' || sessionState === 'finished'}
+                      color="emerald"
+                    />
+                    <TimeDisplay
+                      isDarkMode={isDarkMode}
+                      label="Hora de Finalización"
+                      value={formData.horaFinalizacion}
+                      active={sessionState === 'finished'}
+                      color="rose"
+                    />
                   </div>
-                )}
 
-                {/* Time Display Row */}
-                <div className="flex flex-wrap items-center gap-3 mb-4">
-                  <TimeDisplay
-                    isDarkMode={isDarkMode}
-                    label="Hora de Inicio"
-                    value={formData.horaInicio}
-                    active={sessionState === 'started' || sessionState === 'finished'}
-                    color="emerald"
-                  />
-                  <TimeDisplay
-                    isDarkMode={isDarkMode}
-                    label="Hora de Finalización"
-                    value={formData.horaFinalizacion}
-                    active={sessionState === 'finished'}
-                    color="rose"
-                  />
-                </div>
-
-                {/* Main Action Buttons */}
-                <div className="flex flex-col sm:flex-row gap-3.5">
-                  <motion.button
-                    whileHover={sessionState === 'idle' ? { scale: 1.015 } : {}}
-                    whileTap={sessionState === 'idle' ? { scale: 0.985 } : {}}
-                    onClick={handleRegistrarInicio}
-                    disabled={sessionState !== 'idle'}
-                    className={`
-                      flex-1 flex items-center justify-center gap-3 px-6 py-4 rounded-2xl
-                      font-bold text-sm sm:text-base tracking-wide transition-all duration-300
-                      ${sessionState === 'idle'
-                        ? 'bg-gradient-to-r from-emerald-600 to-emerald-700 text-white shadow-xl shadow-emerald-600/25 hover:shadow-2xl hover:shadow-emerald-600/35 hover:from-emerald-500 hover:to-emerald-600'
-                        : sessionState === 'started' || sessionState === 'finished'
-                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 cursor-not-allowed'
-                          : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
-                      }
-                    `}
-                    id="btn-registro-inicio"
-                  >
-                    <PlayCircle className="w-5 h-5" />
-                    <span>
-                      {sessionState === 'idle' ? 'Registrar Inicio de Clase' : `Inicio Registrado — ${formData.horaInicio}`}
-                    </span>
-                  </motion.button>
-
-                  <motion.button
-                    whileHover={sessionState === 'started' ? { scale: 1.015 } : {}}
-                    whileTap={sessionState === 'started' ? { scale: 0.985 } : {}}
-                    onClick={handleRegistrarSalida}
-                    disabled={sessionState !== 'started'}
-                    className={`
-                      flex-1 flex items-center justify-center gap-3 px-6 py-4 rounded-2xl
-                      font-bold text-sm sm:text-base tracking-wide transition-all duration-300
-                      ${sessionState === 'started'
-                        ? 'bg-gradient-to-r from-maroon-700 via-maroon-800 to-maroon-900 text-white shadow-xl shadow-maroon-800/30 hover:shadow-2xl hover:shadow-maroon-800/40 hover:from-maroon-600 pulse-glow'
-                        : sessionState === 'finished'
-                          ? 'bg-maroon-500/15 text-maroon-600 dark:text-maroon-400 border border-maroon-500/30 cursor-not-allowed'
-                          : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-transparent'
-                      }
-                    `}
-                    id="btn-registro-salida"
-                  >
-                    <StopCircle className="w-5 h-5" />
-                    <span>
-                      {sessionState === 'finished'
-                        ? `Salida Registrada — ${formData.horaFinalizacion}`
-                        : 'Registrar Salida de Clase'}
-                    </span>
-                  </motion.button>
-                </div>
-
-                {/* ── Botón Finalizar y Enviar (aparece cuando la sesión termina) ── */}
-                {sessionState === 'finished' && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 15 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2, duration: 0.4 }}
-                    className="mt-5 pt-5 border-t border-slate-200/60 dark:border-white/10"
-                  >
+                  {/* Main Action Buttons */}
+                  <div className="flex flex-col sm:flex-row gap-3.5">
                     <motion.button
-                      whileHover={!isSending && !isSent ? { scale: 1.01 } : {}}
-                      whileTap={!isSending && !isSent ? { scale: 0.99 } : {}}
-                      onClick={handleFinalizarYEnviar}
-                      disabled={isSending || isSent}
+                      whileHover={sessionState === 'idle' ? { scale: 1.015 } : {}}
+                      whileTap={sessionState === 'idle' ? { scale: 0.985 } : {}}
+                      onClick={handleRegistrarInicio}
+                      disabled={sessionState !== 'idle'}
+                      className={`
+                        flex-1 flex items-center justify-center gap-3 px-6 py-4 rounded-2xl
+                        font-bold text-sm sm:text-base tracking-wide transition-all duration-300
+                        ${sessionState === 'idle'
+                          ? 'bg-gradient-to-r from-emerald-600 to-emerald-700 text-white shadow-xl shadow-emerald-600/25 hover:shadow-2xl hover:shadow-emerald-600/35 hover:from-emerald-500 hover:to-emerald-600'
+                          : sessionState === 'started' || sessionState === 'finished'
+                            ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 cursor-not-allowed'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                        }
+                      `}
+                      id="btn-registro-inicio"
+                    >
+                      <PlayCircle className="w-5 h-5" />
+                      <span>
+                        {sessionState === 'idle' ? 'Registrar Inicio de Clase' : `Inicio Registrado — ${formData.horaInicio}`}
+                      </span>
+                    </motion.button>
+
+                    <motion.button
+                      whileHover={sessionState === 'started' ? { scale: 1.015 } : {}}
+                      whileTap={sessionState === 'started' ? { scale: 0.985 } : {}}
+                      onClick={handleRegistrarSalida}
+                      disabled={sessionState !== 'started'}
+                      className={`
+                        flex-1 flex items-center justify-center gap-3 px-6 py-4 rounded-2xl
+                        font-bold text-sm sm:text-base tracking-wide transition-all duration-300
+                        ${sessionState === 'started'
+                          ? 'bg-gradient-to-r from-maroon-700 via-maroon-800 to-maroon-900 text-white shadow-xl shadow-maroon-800/30 hover:shadow-2xl hover:shadow-maroon-800/40 hover:from-maroon-600 pulse-glow'
+                          : sessionState === 'finished'
+                            ? 'bg-maroon-500/15 text-maroon-600 dark:text-maroon-400 border border-maroon-500/30 cursor-not-allowed'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-transparent'
+                        }
+                      `}
+                      id="btn-registro-salida"
+                    >
+                      <StopCircle className="w-5 h-5" />
+                      <span>
+                        {sessionState === 'finished'
+                          ? `Salida Registrada — ${formData.horaFinalizacion}`
+                          : 'Registrar Salida de Clase'}
+                      </span>
+                    </motion.button>
+                  </div>
+                </div>
+
+                {/* ── Botón Finalizar y Enviar (tour-step-5) ── */}
+                <div id="tour-step-5">
+                  <div className="mt-5 pt-5 border-t border-slate-200/60 dark:border-white/10">
+                    <motion.button
+                      whileHover={!isSending ? { scale: 1.01 } : {}}
+                      whileTap={!isSending ? { scale: 0.99 } : {}}
+                      onClick={() => setShowSuccessModal(true)}
+                      disabled={isSending}
                       className={`
                         w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl
-                        font-bold text-base tracking-wide transition-all duration-300
+                        font-bold text-base tracking-wide transition-all duration-300 cursor-pointer
                         ${isSent
-                          ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-2 border-emerald-400 cursor-not-allowed'
+                          ? 'bg-emerald-600/20 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border-2 border-emerald-500 hover:bg-emerald-600/30 shadow-lg shadow-emerald-500/10'
                           : isSending
                             ? 'bg-slate-200 dark:bg-slate-800 text-slate-500 cursor-wait'
-                            : 'bg-gradient-to-r from-maroon-700 via-maroon-800 to-maroon-900 text-white shadow-2xl shadow-maroon-900/40 hover:from-maroon-600 hover:to-maroon-800 ring-2 ring-maroon-500/40'
+                            : 'bg-gradient-to-r from-red-900 via-red-800 to-red-900 text-white shadow-2xl shadow-red-950/40 hover:from-red-800 hover:to-red-700 ring-2 ring-red-500/40'
                         }
                       `}
                       id="btn-finalizar-enviar"
@@ -1019,7 +1071,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                       {isSent ? (
                         <>
                           <CheckCircle2 className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
-                          <span>Registro Enviado y Guardado en Google Sheets</span>
+                          <span>Registro Enviado y Guardado en Google Sheets (Ver Ficha)</span>
                         </>
                       ) : isSending ? (
                         <>
@@ -1035,11 +1087,11 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                     </motion.button>
                     {!isSent && !isSending && (
                       <p className="text-center text-xs text-slate-400 mt-2.5">
-                        Al enviar, se guardará en Google Sheets y el correlativo pasará automáticamente al siguiente número.
+                        Al enviar, se abrirá la ficha de confirmación para guardar los datos en Google Sheets.
                       </p>
                     )}
-                  </motion.div>
-                )}
+                  </div>
+                </div>
               </div>
             </div>
           </motion.section>
@@ -1055,6 +1107,29 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
           </motion.footer>
         </motion.div>
       </main>
+
+      {/* ═══════════ TOUR GUIADO ONBOARDING (NUBES INSTRUCTIVAS) ═══════════ */}
+      <OnboardingTour
+        isOpen={isTourOpen}
+        onClose={handleCloseTour}
+        isDarkMode={isDarkMode}
+        currentStepIndex={tourStepIndex}
+        setCurrentStepIndex={setTourStepIndex}
+      />
+
+      {/* ═══════════ MODAL FLOTANTE DE CONFIRMACIÓN ELEGANTE ═══════════ */}
+      <ConfirmationModal
+        isOpen={showSuccessModal}
+        onClose={() => setShowSuccessModal(false)}
+        data={submittedData || formData}
+        docente={docente}
+        isDarkMode={isDarkMode}
+        isSending={isSending}
+        isSent={isSent}
+        onConfirmAndSend={handleFinalizarYEnviar}
+        onNuevoRegistro={handleNuevoRegistro}
+        onLogout={onLogout}
+      />
     </motion.div>
   )
 }

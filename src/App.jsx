@@ -22,9 +22,18 @@ function App() {
   const [currentView, setCurrentView] = useState(() => 'login')
   const [toast, setToast] = useState(null)
   
-  // Tema visual (claro / oscuro)
-  const [isDarkMode, setIsDarkMode] = useState(false)
-  const toggleTheme = useCallback(() => setIsDarkMode(prev => !prev), [])
+  // Tema visual (oscuro por defecto, con persistencia opcional)
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('epic_theme_mode')
+    return saved !== null ? saved === 'dark' : true
+  })
+  const toggleTheme = useCallback(() => {
+    setIsDarkMode((prev) => {
+      const next = !prev
+      localStorage.setItem('epic_theme_mode', next ? 'dark' : 'light')
+      return next
+    })
+  }, [])
 
   // Si hay sesión activa en localStorage, ir directo al formulario
   const resolvedView = isSessionLoaded
