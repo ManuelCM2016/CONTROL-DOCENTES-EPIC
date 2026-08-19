@@ -1048,22 +1048,34 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                   </div>
                 </div>
 
-                {/* ── Botón Finalizar y Enviar (tour-step-5) ── */}
+                {/* ── Botón Finalizar y Enviar (tour-step-5) con Validación Inteligente (Opción 2) ── */}
                 <div id="tour-step-5">
                   <div className="mt-5 pt-5 border-t border-slate-200/60 dark:border-white/10">
                     <motion.button
                       whileHover={!isSending ? { scale: 1.01 } : {}}
                       whileTap={!isSending ? { scale: 0.99 } : {}}
-                      onClick={() => setShowSuccessModal(true)}
+                      onClick={() => {
+                        if (sessionState === 'idle') {
+                          showToast('error', '⚠️ Debe registrar el Inicio de Clase antes de finalizar y enviar.')
+                          return
+                        }
+                        if (sessionState === 'started') {
+                          showToast('error', '⏳ La clase está en curso. Primero registre la Salida de Clase antes de enviar.')
+                          return
+                        }
+                        setShowSuccessModal(true)
+                      }}
                       disabled={isSending}
                       className={`
                         w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl
                         font-bold text-base tracking-wide transition-all duration-300 cursor-pointer
                         ${isSent
                           ? 'bg-emerald-600/20 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border-2 border-emerald-500 hover:bg-emerald-600/30 shadow-lg shadow-emerald-500/10'
-                          : isSending
-                            ? 'bg-slate-200 dark:bg-slate-800 text-slate-500 cursor-wait'
-                            : 'bg-gradient-to-r from-red-900 via-red-800 to-red-900 text-white shadow-2xl shadow-red-950/40 hover:from-red-800 hover:to-red-700 ring-2 ring-red-500/40'
+                          : sessionState === 'finished'
+                            ? 'bg-gradient-to-r from-red-900 via-red-800 to-red-900 text-white shadow-2xl shadow-red-950/40 hover:from-red-800 hover:to-red-700 ring-2 ring-red-500/40'
+                            : isDarkMode
+                              ? 'bg-slate-800/80 text-slate-400 border-2 border-slate-700/80 hover:border-slate-600 hover:text-slate-300'
+                              : 'bg-slate-100 text-slate-500 border-2 border-slate-200 hover:border-slate-300 hover:text-slate-700'
                         }
                       `}
                       id="btn-finalizar-enviar"
@@ -1080,14 +1092,20 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                         </>
                       ) : (
                         <>
-                          <Send className="w-5 h-5" />
+                          <Send className={`w-5 h-5 ${sessionState === 'finished' ? 'text-white' : 'opacity-60'}`} />
                           <span>Finalizar Sesión y Enviar Registro</span>
                         </>
                       )}
                     </motion.button>
                     {!isSent && !isSending && (
-                      <p className="text-center text-xs text-slate-400 mt-2.5">
-                        Al enviar, se abrirá la ficha de confirmación para guardar los datos en Google Sheets.
+                      <p className={`text-center text-xs mt-2.5 font-medium transition-colors ${
+                        sessionState === 'finished'
+                          ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                          : isDarkMode ? 'text-slate-500' : 'text-slate-400'
+                      }`}>
+                        {sessionState === 'idle' && 'ℹ️ Registre el inicio de clase para comenzar.'}
+                        {sessionState === 'started' && '⏳ Clase en curso. Al terminar, presione "Registrar Salida de Clase".'}
+                        {sessionState === 'finished' && '✅ Salida registrada. Presione para confirmar y enviar su ficha a Google Sheets.'}
                       </p>
                     )}
                   </div>

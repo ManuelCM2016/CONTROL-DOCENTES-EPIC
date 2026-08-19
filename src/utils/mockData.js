@@ -34,7 +34,7 @@ export const MAESTRO_DOCENTES = [
 
 /**
  * Busca un docente por DNI o código
- * @param {string} identifier - DNI o código del docente
+ * @param {string} identifier - DNI del docente
  * @returns {object|null} - Docente encontrado o null
  */
 export const findDocente = (identifier) => {

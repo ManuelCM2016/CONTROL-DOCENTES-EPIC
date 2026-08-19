@@ -36,7 +36,7 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
       transition={{ duration: 0.4 }}
       className={`min-h-screen flex items-center justify-center relative overflow-hidden transition-colors duration-500`}
       style={{
-        background: isDarkMode 
+        background: isDarkMode
           ? 'linear-gradient(135deg, #1a0a0a 0%, #2d1515 25%, #3B0D0D 50%, #2d1515 75%, #1a0a0a 100%)'
           : 'linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 40%, #e2e8f0 70%, #f1f5f9 100%)'
       }}
@@ -51,11 +51,10 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
       <div className="absolute top-6 right-6 z-50">
         <button
           onClick={toggleTheme}
-          className={`p-3 rounded-full border-2 transition-all duration-300 ${
-            isDarkMode 
-              ? 'bg-white/10 border-white/20 text-white hover:bg-white/20' 
+          className={`p-3 rounded-full border-2 transition-all duration-300 ${isDarkMode
+              ? 'bg-white/10 border-white/20 text-white hover:bg-white/20'
               : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100 shadow-md'
-          }`}
+            }`}
           title="Cambiar modo claro/oscuro"
         >
           {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
@@ -64,27 +63,27 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
         <motion.div
-          animate={{ 
+          animate={{
             rotate: 360,
             scale: [1, 1.1, 1],
           }}
-          transition={{ 
+          transition={{
             rotate: { duration: 60, repeat: Infinity, ease: 'linear' },
             scale: { duration: 8, repeat: Infinity, ease: 'easeInOut' },
           }}
           className="absolute -top-1/2 -right-1/2 w-full h-full"
           style={{
-            background: isDarkMode 
+            background: isDarkMode
               ? 'radial-gradient(circle, rgba(123,45,45,0.15) 0%, transparent 70%)'
               : 'radial-gradient(circle, rgba(123,45,45,0.06) 0%, transparent 70%)',
           }}
         />
         <motion.div
-          animate={{ 
+          animate={{
             rotate: -360,
             scale: [1, 1.15, 1],
           }}
-          transition={{ 
+          transition={{
             rotate: { duration: 50, repeat: Infinity, ease: 'linear' },
             scale: { duration: 10, repeat: Infinity, ease: 'easeInOut' },
           }}
@@ -95,9 +94,9 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
               : 'radial-gradient(circle, rgba(100,116,139,0.08) 0%, transparent 70%)',
           }}
         />
-        
+
         {/* Subtle grid pattern */}
-        <div 
+        <div
           className="absolute inset-0 opacity-[0.03]"
           style={{
             backgroundImage: isDarkMode
@@ -115,14 +114,13 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
         transition={{ delay: 0.2, duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
         className="relative z-10 w-full max-w-md mx-4"
       >
-        <div className={`rounded-3xl border-2 overflow-hidden transition-colors duration-500 ${
-          isDarkMode 
-            ? 'bg-white/[0.07] backdrop-blur-2xl border-white/10 shadow-2xl shadow-black/50' 
+        <div className={`rounded-3xl border-2 overflow-hidden transition-colors duration-500 ${isDarkMode
+            ? 'bg-white/[0.07] backdrop-blur-2xl border-white/10 shadow-2xl shadow-black/50'
             : 'bg-white border-slate-200 shadow-2xl shadow-slate-400/30'
-        }`}>
+          }`}>
           {/* Top accent bar */}
           <div className="h-1.5 w-full bg-gradient-to-r from-red-900 via-red-700 to-red-900" />
-          
+
           <div className="p-8 sm:p-10">
             {/* Logo Section */}
             <motion.div
@@ -132,14 +130,13 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
               className="text-center mb-8"
             >
               {/* Logo */}
-              <div className={`mx-auto w-24 h-24 rounded-full flex items-center justify-center mb-5 shadow-lg ring-4 transition-colors duration-500 ${
-                isDarkMode 
+              <div className={`mx-auto w-24 h-24 rounded-full flex items-center justify-center mb-5 shadow-lg ring-4 transition-colors duration-500 ${isDarkMode
                   ? 'bg-gradient-to-br from-maroon-800 to-maroon-950 shadow-maroon-900/30 ring-maroon-700/20'
                   : 'bg-slate-50 shadow-slate-300/50 ring-slate-200'
-              }`}>
+                }`}>
                 <img src="/logo.png" alt="Logo UPT" className="w-16 h-16 object-contain" />
               </div>
-              
+
               <h1 className={`font-bold text-lg tracking-wider mb-1 transition-colors duration-500 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                 UNIVERSIDAD PRIVADA DE TACNA
               </h1>
@@ -163,16 +160,15 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
               {/* DNI Input */}
               <div>
                 <label className={`block text-xs font-bold tracking-wider uppercase mb-2.5 ml-1 transition-colors duration-500 ${isDarkMode ? 'text-white/60' : 'text-slate-700'}`}>
-                  DNI o Código del Docente
+                  DNI del Docente
                 </label>
                 <div className={`relative group`}>
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <UserCircle 
-                      className={`w-5 h-5 transition-colors duration-300 ${
-                        isFocused 
-                          ? 'text-red-800' 
+                    <UserCircle
+                      className={`w-5 h-5 transition-colors duration-300 ${isFocused
+                          ? 'text-red-800'
                           : (isDarkMode ? 'text-white/30' : 'text-slate-400')
-                      }`} 
+                        }`}
                     />
                   </div>
                   <input
@@ -187,9 +183,9 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
                       text-lg font-semibold tracking-wider
                       transition-all duration-300 ease-out
                       focus:outline-none border-2
-                      ${isDarkMode 
-                        ? 'bg-white/[0.06] text-white placeholder:text-white/25 ' + (error 
-                          ? 'border-red-500/60 focus:border-red-400 focus:ring-4 focus:ring-red-500/10' 
+                      ${isDarkMode
+                        ? 'bg-white/[0.06] text-white placeholder:text-white/25 ' + (error
+                          ? 'border-red-500/60 focus:border-red-400 focus:ring-4 focus:ring-red-500/10'
                           : 'border-white/10 focus:border-maroon-500/60 focus:ring-4 focus:ring-maroon-500/10 hover:border-white/20')
                         : 'bg-slate-50 text-slate-900 placeholder:text-slate-400 ' + (error
                           ? 'border-red-500 focus:border-red-600 focus:ring-2 focus:ring-red-600/20'
@@ -203,16 +199,15 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
                   />
                   {/* Character counter */}
                   <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none">
-                    <span className={`text-xs font-mono font-bold transition-colors duration-300 ${
-                      dni.length >= 4 
+                    <span className={`text-xs font-mono font-bold transition-colors duration-300 ${dni.length >= 4
                         ? (isDarkMode ? 'text-green-400/80' : 'text-emerald-600')
                         : (isDarkMode ? 'text-white/20' : 'text-slate-400')
-                    }`}>
+                      }`}>
                       {dni.length}/8
                     </span>
                   </div>
                 </div>
-                
+
                 {/* Error message */}
                 <AnimatePresenceWrapper show={!!error}>
                   <motion.p
@@ -238,7 +233,7 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
                   transition-all duration-300 ease-out
                   ${dni.length >= 4
                     ? 'bg-gradient-to-r from-red-900 to-red-800 text-white shadow-lg shadow-red-900/30 hover:shadow-xl hover:shadow-red-900/40 hover:from-red-800 hover:to-red-700'
-                    : isDarkMode 
+                    : isDarkMode
                       ? 'bg-white/[0.06] text-white/30 cursor-not-allowed border border-white/5'
                       : 'bg-slate-100 text-slate-400 cursor-not-allowed border-2 border-slate-200'
                   }
@@ -247,9 +242,8 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
                 id="btn-ingresar"
               >
                 <span>Ingresar al Sistema</span>
-                <ArrowRight className={`w-5 h-5 transition-transform duration-300 ${
-                  dni.length >= 4 ? 'group-hover:translate-x-1' : ''
-                }`} />
+                <ArrowRight className={`w-5 h-5 transition-transform duration-300 ${dni.length >= 4 ? 'group-hover:translate-x-1' : ''
+                  }`} />
               </motion.button>
             </motion.form>
 

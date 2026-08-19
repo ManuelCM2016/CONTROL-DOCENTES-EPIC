@@ -40,7 +40,7 @@ const fetchGAS = async (url, options = {}) => {
  * - Si hay URL configurada → llama a Google Apps Script
  * - Si no → usa mock data local
  * 
- * @param {string} identifier - DNI o código del docente
+ * @param {string} identifier - DNI del docente
  * @returns {Promise<{success: boolean, data?: object, message?: string}>}
  */
 export const buscarDocente = async (identifier) => {
@@ -59,14 +59,14 @@ export const buscarDocente = async (identifier) => {
   try {
     const url = `${GOOGLE_SCRIPT_URL}?id=${encodeURIComponent(identifier)}`
     const response = await fetchGAS(url)
-    
+
     // Verificar si la respuesta es OK
     if (!response.ok) {
       throw new Error(`Error del servidor (HTTP ${response.status})`)
     }
 
     const text = await response.text()
-    
+
     // Intentar parsear el JSON
     try {
       const result = JSON.parse(text)
@@ -123,7 +123,7 @@ export const registrarSesion = async (sessionData) => {
     }
 
     const text = await response.text()
-    
+
     try {
       const result = JSON.parse(text)
       return result
