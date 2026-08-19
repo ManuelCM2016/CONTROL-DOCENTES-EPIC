@@ -13,12 +13,13 @@
  * 2. Estructura de la pestaña "MAESTRO_DOCENTES" (fila 1 = encabezados):
  *    | DNI      | CODIGO | NOMBRE                    | FACULTAD              | ESCUELA                            | CARRERA              | CURSOS                                     |
  *    |----------|--------|---------------------------|-----------------------|------------------------------------|----------------------|--------------------------------------------|
- *    | 70123456 | D001   | Ing. Carlos Mendoza Quispe| Facultad de Ingeniería| Escuela Prof. de Ingeniería Civil  | Ingeniería Civil     | Topografía I, Mecánica de Suelos, Geodesia |
+ *    | 70123456 | D001   | Ing. Carlos Mendoza Quispe| Facultad de Ingeniería| Escuela Prof. de Ingeniería Civil  | Ingeniería Civil     | Topografía I - A, Mecánica de Suelos - B   |
  * 
- *    NOTA: Los cursos van separados por comas en una sola celda.
+ *    NOTA: Los cursos van separados por comas en una sola celda y ya incluyen la sección (ej. "FÍSICA II - A").
  * 
  * 3. Estructura de la pestaña "BASE_DE_DATOS" (fila 1 = encabezados):
- *    | TIMESTAMP | DNI | DOCENTE | FACULTAD | ESCUELA | CARRERA | N° | AULA/LAB | FECHA | ASIGNATURA | SECCION | UNIDAD | SEMANA | TEMA PROGRAMADO | RECURSOS UTILIZADOS | HORA INICIO | HORA FINALIZACION | N° ESTUDIANTES | VALIDACION | OBSERVACIONES |
+ *    | A | B | C | D | E | F | G | H | I | J | K | L | M | N | O | P | Q | R | S |
+ *    | TIMESTAMP | DNI | DOCENTE | FACULTAD | ESCUELA | CARRERA | N° | AULA/LAB | FECHA | ASIGNATURA | UNIDAD | SEMANA | TEMA PROGRAMADO | RECURSOS UTILIZADOS | HORA INICIO | HORA FINALIZACION | N° ESTUDIANTES | VALIDACION | OBSERVACIONES |
  * 
  * 4. Reemplazar SPREADSHEET_ID con el ID real del Google Sheets.
  * 
@@ -60,23 +61,6 @@ function getSheet(name) {
 /**
  * Maneja peticiones GET.
  * Parámetro esperado: ?id=70123456 (DNI o Código del docente)
- * 
- * Respuesta exitosa:
- * {
- *   success: true,
- *   data: {
- *     dni: "70123456",
- *     codigo: "D001",
- *     nombre: "Ing. Carlos Mendoza Quispe",
- *     facultad: "Facultad de Ingeniería",
- *     escuela: "Escuela Prof. de Ingeniería Civil",
- *     carrera: "Ingeniería Civil",
- *     cursos: ["Topografía I", "Mecánica de Suelos", "Geodesia"]
- *   }
- * }
- * 
- * Respuesta de error:
- * { success: false, message: "Docente no encontrado" }
  */
 function doGet(e) {
   try {
@@ -99,7 +83,7 @@ function doGet(e) {
       const codigo = String(row[1]).trim().toUpperCase();
 
       if (dni === id || codigo === id) {
-        // Parsear cursos: "Topografía I, Mecánica de Suelos" → ["Topografía I", "Mecánica de Suelos"]
+        // Parsear cursos: "Topografía I - A, Mecánica de Suelos - B"
         const cursosRaw = String(row[6] || '');
         const cursos = cursosRaw
           .split(',')
@@ -144,7 +128,7 @@ function doGet(e) {
  * Payload esperado:
  * {
  *   dni, docente, facultad, escuela, carrera,
- *   numero, aulaLab, fecha, asignatura, seccion,
+ *   numero, aulaLab, fecha, asignatura,
  *   unidad, semanaAcademica, temaProgramado,
  *   recursos, horaInicio, horaFinalizacion,
  *   numEstudiantes, observaciones
@@ -152,9 +136,7 @@ function doGet(e) {
  */
 function doPost(e) {
   try {
-    // Parsear el body del POST
     const payload = JSON.parse(e.postData.contents);
-
     const sheet = getSheet(HOJA_DATOS);
 
     // Construir los recursos como texto legible
@@ -170,7 +152,7 @@ function doPost(e) {
       'dd/MM/yyyy HH:mm:ss'
     );
 
-    // Construir fila en el orden exacto de las columnas de BASE_DE_DATOS
+    // Construir fila en el orden exacto de las 19 columnas de BASE_DE_DATOS
     const newRow = [
       timestampStr,                          // A: TIMESTAMP
       payload.dni || '',                     // B: DNI
@@ -181,17 +163,16 @@ function doPost(e) {
       payload.numero || '',                  // G: N°
       payload.aulaLab || '',                 // H: AULA/LAB
       payload.fecha || '',                   // I: FECHA
-      payload.asignatura || '',              // J: ASIGNATURA
-      payload.seccion || '',                 // K: SECCIÓN
-      payload.unidad || '',                  // L: UNIDAD
-      payload.semanaAcademica || '',         // M: SEMANA
-      payload.temaProgramado || '',          // N: TEMA PROGRAMADO
-      recursosText,                          // O: RECURSOS UTILIZADOS
-      payload.horaInicio || '',              // P: HORA INICIO
-      payload.horaFinalizacion || '',        // Q: HORA FINALIZACIÓN
-      payload.numEstudiantes || '',          // R: N° ESTUDIANTES
-      '',                                    // S: VALIDACIÓN (lo llena la directora)
-      payload.observaciones || '',           // T: OBSERVACIONES
+      payload.asignatura || '',              // J: ASIGNATURA (incluye sección)
+      payload.unidad || '',                  // K: UNIDAD
+      payload.semanaAcademica || '',         // L: SEMANA
+      payload.temaProgramado || '',          // M: TEMA PROGRAMADO
+      recursosText,                          // N: RECURSOS UTILIZADOS
+      payload.horaInicio || '',              // O: HORA INICIO
+      payload.horaFinalizacion || '',        // P: HORA FINALIZACIÓN
+      payload.numEstudiantes || '',          // Q: N° ESTUDIANTES
+      '',                                    // R: VALIDACIÓN (lo llena la directora)
+      payload.observaciones || '',           // S: OBSERVACIONES
     ];
 
     // Insertar al final de la hoja
@@ -212,9 +193,6 @@ function doPost(e) {
 
 // ══════════════ FUNCIÓN DE PRUEBA ══════════════
 
-/**
- * Ejecutar manualmente para verificar la conexión con el Sheets
- */
 function testConnection() {
   try {
     const sheet = getSheet(HOJA_DOCENTES);

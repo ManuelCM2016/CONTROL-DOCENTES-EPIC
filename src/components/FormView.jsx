@@ -82,24 +82,21 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
     }
   }, [])
 
-  // ── Función para generar estado inicial con automatizaciones ──
+  // ── Función para generar estado inicial limpio para cada docente ──
   const getAutomatedInitialFormData = useCallback(() => {
     const hoy = new Date().toISOString().split('T')[0]
     const { semana, unidad } = calcularSemanaYUnidad(hoy)
-    const ultimoNumero = getSiguienteNumeroRegistro(docente?.dni)
-    const ultimaAula = typeof localStorage !== 'undefined' ? localStorage.getItem('upt_last_aula') || '' : ''
-    const cursoUnico = docente?.cursos && docente.cursos.length === 1 ? docente.cursos[0] : ''
+    const ultimoNumero = getSiguienteNumeroRegistro(docente?.dni || docente?.codigo)
 
     return {
       numero: ultimoNumero,
-      aulaLab: ultimaAula,
+      aulaLab: '',
       fecha: hoy,
       unidad: unidad,
       semanaAcademica: String(semana),
-      asignatura: cursoUnico,
-      seccion: '',
+      asignatura: '',
       temaProgramado: '',
-      recursos: [...RECURSOS_HABITUALES], // Preseleccionados por defecto
+      recursos: [],
       horaInicio: null,
       horaFinalizacion: null,
       numEstudiantes: '',
@@ -107,10 +104,10 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
     }
   }, [docente])
 
-  // ── Inicializar estado (LocalStorage o Automatizado) ──
+  // ── Inicializar estado: si hay sesión en curso para este docente se restaura, sino formulario limpio ──
   const [formData, setFormData] = useState(() => {
     const saved = loadFormData()
-    if (saved && (saved.horaInicio || saved.temaProgramado || saved.asignatura)) {
+    if (saved && saved.horaInicio) {
       return { ...getAutomatedInitialFormData(), ...saved }
     }
     return getAutomatedInitialFormData()
@@ -127,7 +124,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
   // Ref para evitar guardar en el primer render
   const isFirstRender = useRef(true)
 
-  // ── Auto-guardado en localStorage ──
+  // ── Auto-guardado en localStorage exclusivo del docente activo ──
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false
@@ -140,11 +137,6 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
   const updateField = useCallback((field, value) => {
     setFormData((prev) => {
       const updated = { ...prev, [field]: value }
-
-      // Si cambia el aula, guardarla como preferencia en este dispositivo
-      if (field === 'aulaLab' && typeof localStorage !== 'undefined') {
-        localStorage.setItem('upt_last_aula', value)
-      }
 
       // Si cambia la fecha, recalcular automáticamente Semana y Unidad
       if (field === 'fecha' && value) {
@@ -200,7 +192,6 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       Boolean(formData.aulaLab?.trim()),
       Boolean(formData.fecha),
       Boolean(formData.asignatura),
-      Boolean(formData.seccion?.trim()),
       Boolean(formData.unidad),
       Boolean(formData.semanaAcademica),
       Boolean(formData.temaProgramado?.trim()),
@@ -219,8 +210,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
     const requiredFields = [
       { key: 'aulaLab', name: 'Aula / Laboratorio' },
       { key: 'fecha', name: 'Fecha' },
-      { key: 'asignatura', name: 'Asignatura' },
-      { key: 'seccion', name: 'Sección' },
+      { key: 'asignatura', name: 'Asignatura y Sección' },
       { key: 'unidad', name: 'Unidad' },
       { key: 'semanaAcademica', name: 'N° de Semana Académica' },
       { key: 'temaProgramado', name: 'Tema Programado en el Sílabo' },
@@ -323,7 +313,6 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
         aulaLab: formData.aulaLab,
         fecha: formData.fecha,
         asignatura: formData.asignatura,
-        seccion: formData.seccion,
         unidad: formData.unidad,
         semanaAcademica: formData.semanaAcademica,
         temaProgramado: formData.temaProgramado,
@@ -339,10 +328,10 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       if (result.success) {
         setIsSent(true)
         showToast('success', '✅ Registro enviado exitosamente a Google Sheets')
-        
+
         // Incrementar el correlativo de registro automáticamente
         guardarNumeroRegistroCompletado(docente.dni, formData.numero)
-        
+
         // Limpiar estado guardado en localStorage
         saveFormData(null)
       } else {
@@ -365,7 +354,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       style={{
         background: isDarkMode
           ? 'linear-gradient(135deg, #120606 0%, #200b0b 25%, #2b0c0c 50%, #1a0808 75%, #100505 100%)'
-          : 'linear-gradient(135deg, #fdfbfb 0%, #f7f1f1 50%, #f4e8e8 100%)',
+          : 'linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 30%, #e2e8f0 60%, #f1f5f9 100%)',
       }}
     >
       {/* ═══════════════════ HEADER ═══════════════════ */}
@@ -373,11 +362,10 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5 }}
-        className={`sticky top-0 z-50 backdrop-blur-xl border-b transition-colors duration-500 ${
-          isDarkMode
-            ? 'bg-[#150707]/85 border-white/10 shadow-lg shadow-black/40'
-            : 'bg-white/90 border-slate-200/80 shadow-sm'
-        }`}
+        className={`sticky top-0 z-50 border-b-2 transition-colors duration-500 ${isDarkMode
+          ? 'bg-[#150707]/90 backdrop-blur-xl border-white/10 shadow-xl shadow-black/50'
+          : 'bg-white border-slate-200 shadow-lg shadow-slate-300/40'
+          }`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 sm:h-[72px]">
@@ -387,27 +375,26 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                 <img src="/logo.png" alt="Logo UPT" className="w-full h-full object-contain" />
               </div>
               <div>
-                <h1 className={`text-sm font-bold tracking-wide leading-tight transition-colors duration-500 ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>
+                <h1 className={`text-sm font-bold tracking-wide leading-tight transition-colors duration-500 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                   CONTROL DE AVANCE SILÁBICO
                 </h1>
-                <p className={`text-[11px] leading-tight transition-colors duration-500 ${isDarkMode ? 'text-maroon-300/80' : 'text-slate-500'}`}>
+                <p className={`text-[11px] font-semibold leading-tight transition-colors duration-500 ${isDarkMode ? 'text-maroon-300/80' : 'text-slate-600'}`}>
                   Escuela Profesional de Ingeniería Civil — UPT
                 </p>
               </div>
             </div>
 
             {/* Center: Docente info */}
-            <div className={`hidden md:flex items-center gap-2.5 px-4 py-2 rounded-xl border transition-colors duration-500 ${
-              isDarkMode
-                ? 'bg-white/5 border-white/10 text-white'
-                : 'bg-maroon-50/70 border-maroon-100/60 text-maroon-900'
-            }`}>
-              <div className="w-8 h-8 rounded-lg bg-maroon-700/20 flex items-center justify-center text-maroon-600">
+            <div className={`hidden md:flex items-center gap-2.5 px-4 py-2 rounded-xl border-2 transition-colors duration-500 ${isDarkMode
+              ? 'bg-white/5 border-white/10 text-white'
+              : 'bg-slate-50 border-slate-200 text-slate-900 shadow-sm'
+              }`}>
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isDarkMode ? 'bg-maroon-700/20 text-maroon-300' : 'bg-red-900/10 text-red-900'}`}>
                 <User className="w-4 h-4" />
               </div>
               <div>
-                <p className="text-sm font-semibold leading-tight">{docente.nombre}</p>
-                <p className={`text-[10px] leading-tight ${isDarkMode ? 'text-maroon-300' : 'text-maroon-600'}`}>
+                <p className={`text-sm font-bold leading-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{docente.nombre}</p>
+                <p className={`text-[10px] font-semibold leading-tight ${isDarkMode ? 'text-maroon-300' : 'text-slate-500'}`}>
                   DNI / Cód: {docente.dni || docente.codigo}
                 </p>
               </div>
@@ -416,25 +403,23 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
             {/* Right: Clock + Actions */}
             <div className="flex items-center gap-4">
               <DigitalClock isDarkMode={isDarkMode} />
-              <div className="flex items-center gap-2 border-l border-slate-200/40 pl-3">
+              <div className={`flex items-center gap-2 border-l pl-3 ${isDarkMode ? 'border-white/15' : 'border-slate-300'}`}>
                 <button
                   onClick={toggleTheme}
-                  className={`p-2.5 rounded-xl border transition-all duration-300 ${
-                    isDarkMode
-                      ? 'bg-white/10 border-white/15 text-yellow-300 hover:bg-white/20'
-                      : 'bg-maroon-50 border-maroon-100 text-maroon-800 hover:bg-maroon-100'
-                  }`}
+                  className={`p-2.5 rounded-xl border-2 transition-all duration-300 ${isDarkMode
+                    ? 'bg-white/10 border-white/15 text-yellow-300 hover:bg-white/20'
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm'
+                    }`}
                   title={isDarkMode ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
                 >
                   {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                 </button>
                 <button
                   onClick={onLogout}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
-                    isDarkMode
-                      ? 'text-red-300 hover:text-white hover:bg-red-500/20'
-                      : 'text-slate-600 hover:text-red-600 hover:bg-red-50'
-                  }`}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all duration-200 ${isDarkMode
+                    ? 'text-red-300 hover:text-white hover:bg-red-500/20'
+                    : 'text-slate-600 hover:text-red-700 hover:bg-red-50'
+                    }`}
                 >
                   <LogOut className="w-4 h-4" />
                   <span className="hidden sm:inline">Salir</span>
@@ -455,33 +440,34 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
         >
           {/* ─── BANNER SUPERIOR CON AUTOMATIZACIÓN DE SEMESTRE ─── */}
           <motion.div variants={itemVariants} className="flex flex-wrap items-center justify-between gap-3 px-1">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-maroon-700/10 border border-maroon-700/20 backdrop-blur-md">
-              <ClipboardCheck className="w-3.5 h-3.5 text-maroon-600" />
-              <span className={`text-xs font-bold tracking-wider uppercase ${isDarkMode ? 'text-maroon-300' : 'text-maroon-800'}`}>
+            <div className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full border-2 ${isDarkMode ? 'bg-maroon-700/10 border-maroon-700/20' : 'bg-white border-slate-200 shadow-sm'}`}>
+              <ClipboardCheck className={`w-3.5 h-3.5 ${isDarkMode ? 'text-maroon-400' : 'text-red-900'}`} />
+              <span className={`text-xs font-bold tracking-wider uppercase ${isDarkMode ? 'text-maroon-300' : 'text-red-900'}`}>
                 ANEXO C — SEMESTRE 2026-II
               </span>
             </div>
 
-            {/* Badge de detección de calendario */}
-            <div className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-medium transition-all ${
-              estadoCalendario.esJuegosFlorales
-                ? 'bg-amber-500/15 border-amber-500/30 text-amber-600 dark:text-amber-300 font-bold'
-                : isDarkMode
-                  ? 'bg-white/5 border-white/10 text-maroon-200'
-                  : 'bg-white/80 border-slate-200 text-slate-700 shadow-sm'
-            }`}>
-              <Sparkles className="w-3.5 h-3.5 text-maroon-500" />
-              <span>{estadoCalendario.detalle}</span>
+            {/* Badge de estado del sistema y semestre */}
+            <div className={`flex items-center gap-2.5 px-4 py-1.5 rounded-full border-2 text-xs font-bold transition-all ${isDarkMode
+              ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300 shadow-lg shadow-black/20'
+              : 'bg-white border-emerald-300 text-emerald-800 shadow-sm'
+              }`}>
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span>Registro de Actividades en Línea</span>
+              <span className="opacity-40">•</span>
+              <span className={isDarkMode ? 'text-slate-300' : 'text-slate-500'}>Semestre 2026-II</span>
             </div>
 
             {/* Tracker de progreso del formulario */}
-            <div className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-semibold ${
-              progresoFormulario.porcentaje === 100
-                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
-                : isDarkMode
-                  ? 'bg-white/5 border-white/10 text-slate-300'
-                  : 'bg-white/80 border-slate-200 text-slate-600 shadow-sm'
-            }`}>
+            <div className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border-2 text-xs font-bold ${progresoFormulario.porcentaje === 100
+              ? isDarkMode ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50 border-emerald-400 text-emerald-700'
+              : isDarkMode
+                ? 'bg-white/5 border-white/10 text-slate-300'
+                : 'bg-white border-slate-200 text-slate-700 shadow-sm'
+              }`}>
               <span>Progreso: {progresoFormulario.completados}/{progresoFormulario.total}</span>
               <div className="w-16 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                 <div
@@ -495,8 +481,8 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
           {/* ─── DATOS INSTITUCIONALES (READ-ONLY) ─── */}
           <motion.section variants={itemVariants}>
             <div className="flex items-center gap-2 mb-3">
-              <div className="w-1 h-5 bg-maroon-600 rounded-full" />
-              <h2 className={`text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'text-maroon-300' : 'text-slate-700'}`}>
+              <div className="w-1.5 h-5 bg-maroon-700 rounded-full" />
+              <h2 className={`text-xs font-extrabold uppercase tracking-wider ${isDarkMode ? 'text-maroon-300' : 'text-red-900'}`}>
                 Datos Institucionales
               </h2>
               <Lock className="w-3.5 h-3.5 text-slate-400" />
@@ -532,21 +518,20 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
           {/* ─── DATOS DE LA SESIÓN ─── */}
           <motion.section variants={itemVariants}>
             <div className="flex items-center gap-2 mb-3">
-              <div className="w-1 h-5 bg-maroon-600 rounded-full" />
-              <h2 className={`text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'text-maroon-300' : 'text-slate-700'}`}>
+              <div className="w-1.5 h-5 bg-maroon-700 rounded-full" />
+              <h2 className={`text-xs font-extrabold uppercase tracking-wider ${isDarkMode ? 'text-maroon-300' : 'text-red-900'}`}>
                 Datos de la Sesión de Clase
               </h2>
             </div>
 
-            <div className={`rounded-3xl border transition-all duration-500 overflow-hidden ${
-              isDarkMode ? 'glass-card-dark' : 'glass-card-light'
-            }`}>
+            <div className={`rounded-3xl border transition-all duration-500 overflow-hidden ${isDarkMode ? 'glass-card-dark' : 'glass-card-light'
+              }`}>
               <div className="p-5 sm:p-7 space-y-6">
-                
+
                 {/* Row 1: N°, Aula, Fecha */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : ''}`} htmlFor="campo-numero">
+                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-numero">
                       <span><Hash className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> N° de Registro</span>
                       <span className="text-[10px] text-emerald-500 font-bold">Auto-correlativo</span>
                     </label>
@@ -560,7 +545,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                   </div>
 
                   <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : ''}`} htmlFor="campo-aula">
+                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-aula">
                       <span><MapPin className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Aula / Laboratorio</span>
                       {formData.aulaLab && <Check className="w-3.5 h-3.5 text-emerald-500" />}
                     </label>
@@ -575,9 +560,9 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                   </div>
 
                   <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : ''}`} htmlFor="campo-fecha">
+                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-fecha">
                       <span><Calendar className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Fecha</span>
-                      <span className="text-[10px] text-maroon-500">Auto-calcula semana</span>
+                      <span className={`text-[10px] font-semibold ${isDarkMode ? 'text-maroon-400' : 'text-red-800'}`}>Auto-calcula semana</span>
                     </label>
                     <input
                       type="date"
@@ -589,48 +574,31 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                   </div>
                 </div>
 
-                {/* Row 2: Asignatura (dinámica), Sección */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : ''}`} htmlFor="campo-asignatura">
-                      <span><BookMarked className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Asignatura</span>
-                      {formData.asignatura && <Check className="w-3.5 h-3.5 text-emerald-500" />}
-                    </label>
-                    <select
-                      id="campo-asignatura"
-                      value={formData.asignatura}
-                      onChange={(e) => updateField('asignatura', e.target.value)}
-                      className={isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'}
-                    >
-                      <option value="">Seleccione la asignatura</option>
-                      {(docente.cursos || []).map((curso) => (
-                        <option key={curso} value={curso}>{curso}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : ''}`} htmlFor="campo-seccion">
-                      <span><Layers className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Sección</span>
-                      {formData.seccion && <Check className="w-3.5 h-3.5 text-emerald-500" />}
-                    </label>
-                    <input
-                      type="text"
-                      id="campo-seccion"
-                      value={formData.seccion}
-                      onChange={(e) => updateField('seccion', e.target.value)}
-                      placeholder="Ej. A, B, C o Única"
-                      className={isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'}
-                    />
-                  </div>
+                {/* Row 2: Asignatura (incluye Código, Nombre y Sección) */}
+                <div>
+                  <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-asignatura">
+                    <span><BookMarked className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Asignatura y Sección</span>
+                    {formData.asignatura && <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                  </label>
+                  <select
+                    id="campo-asignatura"
+                    value={formData.asignatura}
+                    onChange={(e) => updateField('asignatura', e.target.value)}
+                    className={isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'}
+                  >
+                    <option value="">Seleccione la asignatura y sección</option>
+                    {(docente.cursos || []).map((curso) => (
+                      <option key={curso} value={curso}>{curso}</option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Row 3: Unidad, Semana Académica (Autocalculadas del Semestre 2026-II) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : ''}`} htmlFor="campo-unidad">
+                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-unidad">
                       <span><Layers className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Unidad Académica</span>
-                      <span className="text-[10px] text-slate-400 font-normal">6 semanas c/u</span>
+                      <span className={`text-[10px] font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>6 semanas c/u</span>
                     </label>
                     <select
                       id="campo-unidad"
@@ -639,16 +607,16 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                       className={isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'}
                     >
                       <option value="">Seleccione Unidad</option>
-                      <option value="I">Unidad I (Semanas 1 a 6)</option>
-                      <option value="II">Unidad II (Semanas 7 a 12)</option>
-                      <option value="III">Unidad III (Semanas 13 a 18)</option>
+                      <option value="I">Unidad I</option>
+                      <option value="II">Unidad II</option>
+                      <option value="III">Unidad III</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : ''}`} htmlFor="campo-semana">
+                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-semana">
                       <span><Calendar className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> N° de Semana Académica</span>
-                      <span className="text-[10px] text-emerald-500 font-medium">18 semanas en total</span>
+                      <span className={`text-[10px] font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>18 semanas en total</span>
                     </label>
                     <select
                       id="campo-semana"
@@ -672,7 +640,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
 
                 {/* Row 4: Tema Programado */}
                 <div>
-                  <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : ''}`} htmlFor="campo-tema">
+                  <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-tema">
                     <span><FileText className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Tema Programado en el Sílabo</span>
                     {formData.temaProgramado && <Check className="w-3.5 h-3.5 text-emerald-500" />}
                   </label>
@@ -689,21 +657,20 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                 {/* Row 5: Recursos Utilizados con Chips y Presets */}
                 <div>
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <label className={`label-institutional !mb-0 ${isDarkMode ? '!text-slate-200' : ''}`}>
+                    <label className={`label-institutional !mb-0 ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`}>
                       <MonitorPlay className="w-3.5 h-3.5 inline mr-1 text-maroon-500" />
                       Recursos Utilizados
                     </label>
-                    
+
                     {/* Botones de acción rápida para recursos */}
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={aplicarRecursosHabituales}
-                        className={`text-xs px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1 transition-all ${
-                          isDarkMode
-                            ? 'bg-maroon-800/40 text-maroon-300 hover:bg-maroon-800/70 border border-maroon-700/50'
-                            : 'bg-maroon-50 text-maroon-700 hover:bg-maroon-100 border border-maroon-200'
-                        }`}
+                        className={`text-xs px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition-all ${isDarkMode
+                          ? 'bg-maroon-800/40 text-maroon-300 hover:bg-maroon-800/70 border border-maroon-700/50'
+                          : 'bg-red-900/10 text-red-900 hover:bg-red-900/20 border-2 border-red-900/20'
+                          }`}
                       >
                         <Sparkles className="w-3 h-3" />
                         Habituales
@@ -719,7 +686,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                     </div>
                   </div>
 
-                  <p className="text-xs text-slate-400 mb-3">
+                  <p className={`text-xs mb-3 font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                     Seleccione los recursos que utilizará en la clase
                   </p>
 
@@ -737,11 +704,11 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                             border-2 transition-all duration-200 select-none
                             ${isSelected
                               ? isDarkMode
-                                ? 'border-maroon-500 bg-maroon-950/60 shadow-lg shadow-maroon-950/40 text-white'
-                                : 'border-maroon-500 bg-maroon-50/80 shadow-md shadow-maroon-500/10 text-maroon-900'
+                                ? 'border-maroon-500 bg-maroon-950/70 shadow-lg shadow-maroon-950/40 text-white'
+                                : 'border-maroon-600 bg-maroon-50 text-maroon-950 font-bold shadow-md shadow-maroon-700/10 ring-2 ring-maroon-600/15'
                               : isDarkMode
-                                ? 'border-slate-800 bg-slate-800/40 hover:border-slate-700 text-slate-300'
-                                : 'border-slate-200 bg-white/70 hover:border-slate-300 text-slate-700'
+                                ? 'border-slate-800 bg-slate-800/60 hover:border-slate-700 text-slate-300'
+                                : 'border-slate-300 bg-slate-50 hover:bg-white hover:border-slate-400 text-slate-800 font-semibold shadow-xs'
                             }
                           `}
                         >
@@ -779,7 +746,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                 {/* Row 6: N° Estudiantes + Validación */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : ''}`} htmlFor="campo-estudiantes">
+                    <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-estudiantes">
                       <span><Users className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> N° de Estudiantes Asistentes</span>
                       {formData.numEstudiantes && <Check className="w-3.5 h-3.5 text-emerald-500" />}
                     </label>
@@ -801,7 +768,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                           <button
                             type="button"
                             onClick={() => ajustarAsistencia(-1)}
-                            className="p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white/50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100"
+                            className={`p-3 rounded-xl border-2 transition-all ${isDarkMode ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 shadow-sm'}`}
                             title="Restar 1"
                           >
                             <Minus className="w-4 h-4" />
@@ -809,7 +776,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                           <button
                             type="button"
                             onClick={() => ajustarAsistencia(1)}
-                            className="p-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white/50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100"
+                            className={`p-3 rounded-xl border-2 transition-all ${isDarkMode ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 shadow-sm'}`}
                             title="Sumar 1"
                           >
                             <Plus className="w-4 h-4" />
@@ -819,19 +786,18 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
 
                       {/* Presets rápidos de asistencia */}
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-[10px] text-slate-400 mr-1">Rápido:</span>
+                        <span className={`text-[10px] font-semibold mr-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Rápido:</span>
                         {PRESETS_ASISTENCIA.map((qty) => (
                           <button
                             key={qty}
                             type="button"
                             onClick={() => updateField('numEstudiantes', String(qty))}
-                            className={`text-[11px] px-2 py-0.5 rounded-lg border font-mono transition-all ${
-                              formData.numEstudiantes === String(qty)
-                                ? 'bg-maroon-700 text-white border-maroon-700'
-                                : isDarkMode
-                                  ? 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
-                                  : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
-                            }`}
+                            className={`text-[11px] px-2 py-0.5 rounded-lg border font-mono transition-all ${formData.numEstudiantes === String(qty)
+                              ? 'bg-maroon-700 text-white border-maroon-700'
+                              : isDarkMode
+                                ? 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700'
+                                : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
+                              }`}
                           >
                             {qty}
                           </button>
@@ -841,7 +807,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                   </div>
 
                   <div>
-                    <label className={`label-institutional ${isDarkMode ? '!text-slate-200' : ''}`}>
+                    <label className={`label-institutional ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`}>
                       <ClipboardCheck className="w-3.5 h-3.5 inline mr-1 text-maroon-500" />
                       Validación de la Sesión
                     </label>
@@ -868,7 +834,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
 
                 {/* Observaciones */}
                 <div>
-                  <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : ''}`} htmlFor="campo-observaciones">
+                  <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-observaciones">
                     <span>
                       <MessageSquare className="w-3.5 h-3.5 inline mr-1 text-maroon-500" />
                       Observaciones
@@ -887,16 +853,14 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
               </div>
 
               {/* ─── ACTION BUTTONS BAR ─── */}
-              <div className={`border-t px-5 sm:px-7 py-5 transition-colors duration-500 ${
-                isDarkMode ? 'border-white/10 bg-black/20' : 'border-slate-200/80 bg-slate-50/70'
-              }`}>
+              <div className={`border-t-2 px-5 sm:px-7 py-5 transition-colors duration-500 ${isDarkMode ? 'border-white/10 bg-black/20' : 'border-slate-200 bg-slate-50'
+                }`}>
 
                 {/* ── Duración de la sesión (Solo visible en IDLE) ── */}
                 {sessionState === 'idle' && (
-                  <div className={`mb-5 p-4 sm:p-5 rounded-2xl border-2 border-dashed transition-all ${
-                    isDarkMode ? 'border-maroon-500/30 bg-maroon-950/20' : 'border-maroon-200 bg-white'
-                  }`}>
-                    <label className={`label-institutional flex items-center gap-1.5 mb-3 ${isDarkMode ? '!text-slate-200' : ''}`}>
+                  <div className={`mb-5 p-4 sm:p-5 rounded-2xl border-2 border-dashed transition-all ${isDarkMode ? 'border-maroon-500/30 bg-maroon-950/20' : 'border-red-800/30 bg-white shadow-sm'
+                    }`}>
+                    <label className={`label-institutional flex items-center gap-1.5 mb-3 ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`}>
                       <Timer className="w-4 h-4 text-maroon-500" />
                       Duración Estimada de la Clase
                       <span className="text-slate-400 font-normal text-[11px] ml-1">
@@ -1082,10 +1046,10 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
 
           {/* Footer */}
           <motion.footer variants={itemVariants} className="text-center py-6">
-            <p className={`text-xs transition-colors duration-500 ${isDarkMode ? 'text-white/40' : 'text-slate-500'}`}>
+            <p className={`text-xs font-medium transition-colors duration-500 ${isDarkMode ? 'text-white/40' : 'text-slate-600'}`}>
               Universidad Privada de Tacna — Sistema de Control de Avance Silábico © {new Date().getFullYear()}
             </p>
-            <p className={`text-[10px] mt-1 transition-colors duration-500 ${isDarkMode ? 'text-white/20' : 'text-slate-400'}`}>
+            <p className={`text-[10px] mt-1 font-medium transition-colors duration-500 ${isDarkMode ? 'text-white/20' : 'text-slate-500'}`}>
               Escuela Profesional de Ingeniería Civil — Anexo C (Semestre 2026-II)
             </p>
           </motion.footer>
@@ -1098,23 +1062,21 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
 // ═══════════ SUB-COMPONENTS ═══════════
 
 const ReadOnlyCard = ({ icon, label, value, isDarkMode }) => (
-  <div className={`group relative rounded-2xl border p-4 transition-all duration-300 select-none ${
-    isDarkMode
-      ? 'bg-slate-900/60 border-white/10 hover:border-maroon-500/40 shadow-md shadow-black/20'
-      : 'bg-white/90 border-slate-200/80 hover:border-maroon-200 shadow-sm hover:shadow-md'
-  }`}>
+  <div className={`group relative rounded-2xl border-2 p-4 transition-all duration-300 select-none ${isDarkMode
+    ? 'bg-slate-900/80 border-white/10 hover:border-maroon-500/40 shadow-lg shadow-black/30'
+    : 'bg-slate-50 border-slate-200 hover:border-red-800/40 shadow-md shadow-slate-200/60 hover:shadow-lg'
+    }`}>
     <div className="flex items-start gap-3">
-      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors duration-200 ${
-        isDarkMode ? 'bg-maroon-700/20 text-maroon-300' : 'bg-maroon-50 text-maroon-700 group-hover:bg-maroon-100'
-      }`}>
+      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors duration-200 ${isDarkMode ? 'bg-maroon-700/20 text-maroon-300 border border-maroon-700/30' : 'bg-red-900/10 border border-red-900/15 text-red-900 group-hover:bg-red-900/15'
+        }`}>
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+        <p className={`text-[10px] font-extrabold uppercase tracking-wider mb-0.5 flex items-center gap-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
           {label}
-          <Lock className="w-2.5 h-2.5 opacity-40" />
+          <Lock className="w-2.5 h-2.5 opacity-60" />
         </p>
-        <p className={`text-sm font-semibold truncate ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>
+        <p className={`text-sm font-bold truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
           {value || '—'}
         </p>
       </div>
@@ -1127,29 +1089,36 @@ const TimeDisplay = ({ label, value, active, color, isDarkMode }) => {
 
   const activeStyles = isEmerald
     ? isDarkMode
-      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
-      : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+      ? 'bg-emerald-950/70 border-emerald-500 text-emerald-300 shadow-lg shadow-emerald-950/50'
+      : 'bg-emerald-50 border-emerald-500 text-emerald-900 shadow-md shadow-emerald-100'
     : isDarkMode
-      ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
-      : 'bg-rose-50 border-rose-200 text-rose-800'
+      ? 'bg-rose-950/70 border-rose-500 text-rose-300 shadow-lg shadow-rose-950/50'
+      : 'bg-rose-50 border-rose-500 text-rose-900 shadow-md shadow-rose-100'
 
   const idleStyles = isDarkMode
-    ? 'bg-slate-800/40 border-slate-700 text-slate-400'
-    : 'bg-slate-100 border-slate-200 text-slate-400'
+    ? 'bg-slate-800/90 border-slate-700 text-slate-300'
+    : 'bg-white border-slate-300 text-slate-700 shadow-sm'
 
   return (
-    <div className={`flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-medium transition-all ${active ? activeStyles : idleStyles}`}>
-      <div className={`w-2.5 h-2.5 rounded-full ${
-        active
+    <div className={`flex-1 flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border-2 transition-all ${active ? activeStyles : idleStyles}`}>
+      <div className="flex items-center gap-2.5">
+        <div className={`w-3 h-3 rounded-full flex-shrink-0 ${active
           ? isEmerald
-            ? 'bg-emerald-400 animate-pulse'
-            : 'bg-rose-400'
-          : 'bg-slate-400'
-      }`} />
-      <span>{label}:</span>
-      <span className="font-mono-clock font-bold text-sm tracking-wider">
+            ? 'bg-emerald-400 ring-4 ring-emerald-500/20 animate-pulse'
+            : 'bg-rose-400 ring-4 ring-rose-500/20'
+          : isDarkMode ? 'bg-slate-600' : 'bg-slate-400'
+          }`} />
+        <span className="text-xs font-bold uppercase tracking-wider">{label}</span>
+      </div>
+
+      <div className={`font-mono-clock font-extrabold text-base sm:text-lg tracking-widest px-2.5 py-0.5 rounded-lg ${active
+        ? isEmerald
+          ? isDarkMode ? 'bg-emerald-900/60 text-emerald-200' : 'bg-emerald-200/60 text-emerald-900'
+          : isDarkMode ? 'bg-rose-900/60 text-rose-200' : 'bg-rose-200/60 text-rose-900'
+        : isDarkMode ? 'bg-slate-900/60 text-slate-400' : 'bg-slate-200/70 text-slate-500'
+        }`}>
         {value || '--:--:--'}
-      </span>
+      </div>
     </div>
   )
 }

@@ -28,7 +28,7 @@
   }
 
   ::-webkit-scrollbar-track {
-    background: #f1f5f9;
+    background: #e2e8f0;
     border-radius: 3px;
   }
 
@@ -43,71 +43,82 @@
 }
 
 @layer components {
+  /* ══════════════════════════════════════════════
+     MODO CLARO — Alto contraste, nítido, legible
+     ══════════════════════════════════════════════ */
+
+  /* Tarjeta principal en modo claro: Blanca sólida con sombra pronunciada */
   .glass-card-light {
-    @apply bg-white/95 backdrop-blur-md border border-slate-200/80 shadow-xl shadow-maroon-950/5;
+    @apply bg-white border border-slate-200 shadow-lg shadow-slate-200/60 text-slate-900;
   }
 
+  /* Tarjeta principal en modo oscuro: Ahumada traslúcida elegante */
   .glass-card-dark {
-    @apply bg-slate-900/85 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/40 text-slate-100;
+    @apply bg-slate-900/85 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/60 text-slate-100;
   }
 
-  /* Input focus ring with institutional color */
+  /* ── Inputs Light: fondo blanco, borde gris visible, texto negro, focus granate ── */
   .input-institutional-light {
-    @apply w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-slate-800 text-base placeholder:text-slate-400 transition-all duration-300 ease-out focus:outline-none focus:border-maroon-500 focus:ring-4 focus:ring-maroon-500/10 hover:border-slate-300;
+    @apply w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl
+      text-slate-900 font-semibold
+      placeholder:text-slate-400
+      transition-all duration-200 ease-out
+      focus:outline-none focus:border-red-800 focus:ring-2 focus:ring-red-800/20
+      hover:border-slate-400
+      shadow-sm;
   }
 
   .input-institutional-dark {
-    @apply w-full px-4 py-3 bg-slate-800/90 border-2 border-slate-700 rounded-xl text-white text-base placeholder:text-slate-500 transition-all duration-300 ease-out focus:outline-none focus:border-maroon-400 focus:ring-4 focus:ring-maroon-500/20 hover:border-slate-600;
+    @apply w-full px-4 py-3 bg-slate-800/90 border-2 border-slate-700 rounded-xl text-white font-semibold placeholder:text-slate-500 transition-all duration-200 ease-out focus:outline-none focus:border-maroon-400 focus:ring-4 focus:ring-maroon-500/25 hover:border-slate-600 shadow-inner;
   }
 
+  /* ── Selects Light ── */
   .select-institutional-light {
-    @apply w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-slate-800 text-base appearance-none cursor-pointer transition-all duration-300 ease-out focus:outline-none focus:border-maroon-500 focus:ring-4 focus:ring-maroon-500/10 hover:border-slate-300;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    @apply w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl
+      text-slate-900 font-semibold
+      appearance-none cursor-pointer
+      transition-all duration-200 ease-out
+      focus:outline-none focus:border-red-800 focus:ring-2 focus:ring-red-800/20
+      hover:border-slate-400
+      shadow-sm;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23334155' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
-    background-position: right 12px center;
-    background-size: 20px;
-    padding-right: 40px;
+    background-position: right 14px center;
+    background-size: 18px;
+    padding-right: 44px;
   }
 
   .select-institutional-dark {
-    @apply w-full px-4 py-3 bg-slate-800/90 border-2 border-slate-700 rounded-xl text-white text-base appearance-none cursor-pointer transition-all duration-300 ease-out focus:outline-none focus:border-maroon-400 focus:ring-4 focus:ring-maroon-500/20 hover:border-slate-600;
+    @apply w-full px-4 py-3 bg-slate-800/90 border-2 border-slate-700 rounded-xl text-white font-semibold appearance-none cursor-pointer transition-all duration-200 ease-out focus:outline-none focus:border-maroon-400 focus:ring-4 focus:ring-maroon-500/25 hover:border-slate-600 shadow-inner;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
-    background-position: right 12px center;
-    background-size: 20px;
-    padding-right: 40px;
+    background-position: right 14px center;
+    background-size: 18px;
+    padding-right: 44px;
   }
 
+  /* ── Textareas ── */
   .textarea-institutional-light {
-    @apply w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-slate-800 text-base placeholder:text-slate-400 transition-all duration-300 ease-out resize-none focus:outline-none focus:border-maroon-500 focus:ring-4 focus:ring-maroon-500/10 hover:border-slate-300;
+    @apply w-full px-4 py-3 bg-white border-2 border-slate-300 rounded-xl
+      text-slate-900 font-semibold
+      placeholder:text-slate-400
+      transition-all duration-200 ease-out resize-none
+      focus:outline-none focus:border-red-800 focus:ring-2 focus:ring-red-800/20
+      hover:border-slate-400
+      shadow-sm;
   }
 
   .textarea-institutional-dark {
-    @apply w-full px-4 py-3 bg-slate-800/90 border-2 border-slate-700 rounded-xl text-white text-base placeholder:text-slate-500 transition-all duration-300 ease-out resize-none focus:outline-none focus:border-maroon-400 focus:ring-4 focus:ring-maroon-500/20 hover:border-slate-600;
+    @apply w-full px-4 py-3 bg-slate-800/90 border-2 border-slate-700 rounded-xl text-white font-semibold placeholder:text-slate-500 transition-all duration-200 ease-out resize-none focus:outline-none focus:border-maroon-400 focus:ring-4 focus:ring-maroon-500/25 hover:border-slate-600 shadow-inner;
+  }
+
+  /* ── Labels: texto oscuro y alto contraste ── */
+  .label-institutional {
+    @apply block text-xs font-bold text-slate-800 uppercase tracking-wider mb-2;
   }
 }
 
 @layer utilities {
-  /* Shimmer animation for loading states */
-  .shimmer {
-    background: linear-gradient(90deg,
-        rgba(255, 255, 255, 0) 0%,
-        rgba(255, 255, 255, 0.4) 50%,
-        rgba(255, 255, 255, 0) 100%);
-    background-size: 200% 100%;
-    animation: shimmer 2s ease-in-out infinite;
-  }
-
-  @keyframes shimmer {
-    0% {
-      background-position: -200% 0;
-    }
-    100% {
-      background-position: 200% 0;
-    }
-  }
-
-  /* Pulse glow for active states */
   .pulse-glow {
     animation: pulseGlow 2s ease-in-out infinite;
   }
@@ -122,7 +133,6 @@
     }
   }
 
-  /* Clock font */
   .font-mono-clock {
     font-family: 'JetBrains Mono', monospace;
     font-variant-numeric: tabular-nums;

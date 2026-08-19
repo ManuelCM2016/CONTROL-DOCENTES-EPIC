@@ -37,7 +37,6 @@ function App() {
     setCurrentView('loading')
 
     try {
-      // Llamada a la API (mock o real según configuración)
       const result = await buscarDocente(identifier)
 
       if (result.success && result.data) {
@@ -80,7 +79,6 @@ function App() {
     setToast(null)
   }, [])
 
-  // Mientras se carga la sesión de localStorage, no mostrar nada (evita parpadeo)
   if (!isSessionLoaded) {
     return null
   }
@@ -89,14 +87,19 @@ function App() {
     <div className="min-h-screen relative">
       <AnimatePresence mode="wait">
         {resolvedView === 'login' && (
-          <LoginView key="login" onLogin={handleLogin} isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
+          <LoginView
+            key="login-view"
+            onLogin={handleLogin}
+            isDarkMode={isDarkMode}
+            toggleTheme={toggleTheme}
+          />
         )}
         {resolvedView === 'loading' && (
-          <LoadingView key="loading" />
+          <LoadingView key="loading-view" />
         )}
         {resolvedView === 'form' && docente && (
           <FormView
-            key="form"
+            key={`form-${docente.dni || docente.codigo || 'user'}`}
             docente={docente}
             onLogout={handleLogout}
             showToast={showToast}
@@ -112,7 +115,7 @@ function App() {
       <AnimatePresence>
         {toast && (
           <Toast
-            key="toast"
+            key="app-toast"
             type={toast.type}
             message={toast.message}
             onDismiss={dismissToast}

@@ -1,15 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 
 const SESSION_KEY = 'epic_session'
-const FORM_KEY = 'epic_form_data'
 
 /**
- * Custom hook para manejar la sesión del docente y la persistencia
- * del formulario en localStorage.
- * 
- * - Al montar, recupera la sesión activa y datos del formulario si existen.
- * - Proporciona métodos para iniciar sesión, cerrar sesión,
- *   guardar/recuperar datos del formulario automáticamente.
+ * Custom hook para manejar la sesión del docente.
+ * Cada docente y cada ingreso nuevo inicia con el formulario completamente limpio.
  */
 const useSession = () => {
   const [docente, setDocente] = useState(null)
@@ -21,8 +16,7 @@ const useSession = () => {
       const savedSession = localStorage.getItem(SESSION_KEY)
       if (savedSession) {
         const parsed = JSON.parse(savedSession)
-        // Verificar que la sesión tenga datos válidos
-        if (parsed && parsed.dni && parsed.nombre) {
+        if (parsed && (parsed.dni || parsed.codigo) && parsed.nombre) {
           setDocente(parsed)
         }
       }
@@ -33,7 +27,7 @@ const useSession = () => {
     setIsSessionLoaded(true)
   }, [])
 
-  // ── Iniciar sesión: guardar datos del docente ──
+  // ── Iniciar sesión: guardar datos del docente y limpiar caché previo ──
   const startSession = useCallback((docenteData) => {
     setDocente(docenteData)
     try {
@@ -43,39 +37,53 @@ const useSession = () => {
     }
   }, [])
 
-  // ── Cerrar sesión: limpiar todo ──
+  // ── Cerrar sesión: limpiar sesión y formulario por completo ──
   const endSession = useCallback(() => {
+    const currentDni = docente?.dni || docente?.codigo
     setDocente(null)
     try {
       localStorage.removeItem(SESSION_KEY)
-      localStorage.removeItem(FORM_KEY)
+      if (currentDni) {
+        localStorage.removeItem(`epic_form_data_${currentDni}`)
+      }
+      localStorage.removeItem('epic_form_data')
+      localStorage.removeItem('upt_last_aula')
     } catch (error) {
       console.warn('Error al limpiar sesión:', error)
     }
-  }, [])
+  }, [docente])
 
-  // ── Guardar datos del formulario ──
+  // ── Guardar datos del formulario solo para este docente ──
   const saveFormData = useCallback((formData) => {
+    if (!docente) return
+    const key = `epic_form_data_${docente.dni || docente.codigo}`
     try {
-      localStorage.setItem(FORM_KEY, JSON.stringify(formData))
+      if (!formData) {
+        localStorage.removeItem(key)
+        localStorage.removeItem('epic_form_data')
+      } else {
+        localStorage.setItem(key, JSON.stringify(formData))
+      }
     } catch (error) {
       console.warn('Error al guardar formulario:', error)
     }
-  }, [])
+  }, [docente])
 
-  // ── Recuperar datos del formulario ──
+  // ── Recuperar datos del formulario solo si pertenecen a este docente ──
   const loadFormData = useCallback(() => {
+    if (!docente) return null
+    const key = `epic_form_data_${docente.dni || docente.codigo}`
     try {
-      const saved = localStorage.getItem(FORM_KEY)
+      const saved = localStorage.getItem(key)
       if (saved) {
         return JSON.parse(saved)
       }
     } catch (error) {
       console.warn('Error al recuperar formulario:', error)
-      localStorage.removeItem(FORM_KEY)
+      localStorage.removeItem(key)
     }
     return null
-  }, [])
+  }, [docente])
 
   return {
     docente,
