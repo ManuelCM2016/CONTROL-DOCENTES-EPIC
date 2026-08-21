@@ -47,12 +47,12 @@ const ConfirmationModal = ({
 
         {/* Modal Window Container */}
         <motion.div
-          initial={{ opacity: 0, scale: 0.92, y: 25 }}
+          initial={{ opacity: 0, scale: 0.92, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.94, y: 15 }}
+          exit={{ opacity: 0, scale: 0.94, y: 10 }}
           transition={{ type: 'spring', damping: 26, stiffness: 360 }}
           className={`
-            relative z-10 w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl border-2 my-6
+            relative z-10 w-full max-w-2xl max-h-[92vh] flex flex-col rounded-3xl overflow-hidden shadow-2xl border-2 my-auto
             ${isDarkMode
               ? 'bg-gradient-to-b from-[#1c0c0c] via-[#150707] to-[#0f0404] border-white/15 text-slate-100 shadow-black/90'
               : 'bg-gradient-to-b from-white via-slate-50 to-slate-100 border-slate-300 text-slate-900 shadow-slate-400/40'
@@ -60,7 +60,7 @@ const ConfirmationModal = ({
           `}
         >
           {/* Top Institutional Accent Line */}
-          <div className={`h-2 w-full transition-all duration-500 ${isSent
+          <div className={`h-2 w-full shrink-0 transition-all duration-500 ${isSent
             ? 'bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-600'
             : 'bg-gradient-to-r from-red-800 via-red-600 to-red-900'
             }`} />
@@ -70,7 +70,7 @@ const ConfirmationModal = ({
             <button
               onClick={onClose}
               className={`
-                absolute top-5 right-5 p-2 rounded-full border transition-all duration-200
+                absolute top-4 right-4 p-2 rounded-full border transition-all duration-200 z-20
                 ${isDarkMode
                   ? 'bg-white/10 border-white/15 text-slate-300 hover:text-white hover:bg-white/20'
                   : 'bg-slate-100 border-slate-300 text-slate-600 hover:text-slate-900 hover:bg-slate-200'
@@ -83,7 +83,7 @@ const ConfirmationModal = ({
           )}
 
           {/* Modal Content Body */}
-          <div className="p-6 sm:p-8 space-y-6">
+          <div className="p-5 sm:p-7 space-y-5 overflow-y-auto custom-scrollbar">
 
             {/* Header: Changes dynamically between Pre-envío y Post-envío */}
             <div className="text-center space-y-3">

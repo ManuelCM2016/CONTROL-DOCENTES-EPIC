@@ -17,49 +17,49 @@ import {
 
 export const TOUR_STEPS = [
   {
-    targetId: 'tour-step-1',
-    title: '1. Aula, Fecha y Asignatura',
+    targetId: 'tour-step-4',
+    title: '1. Iniciar Clase de Inmediato',
     badge: 'Paso 1 de 5',
+    icon: PlayCircle,
+    description:
+      'Al ingresar al aula, ajuste la duración estimada y presione "REGISTRAR INICIO DE CLASE". Su hora quedará grabada al instante y se programará una alerta sonora 10 min antes del fin.',
+    tips: 'Aparecerá un aviso recordándole no cerrar la ventana durante la clase.',
+  },
+  {
+    targetId: 'tour-step-1',
+    title: '2. Aula, Fecha y Asignatura',
+    badge: 'Paso 2 de 5',
     icon: MapPin,
     description:
-      'Ingresa el aula o laboratorio donde dictarás clase. La fecha se coloca automáticamente y debes seleccionar tu Asignatura con su Sección respectiva.',
+      'Durante el desarrollo de su clase, ingrese el aula o laboratorio y seleccione su Asignatura y Sección. La fecha se autocalcula según el día.',
     tips: 'El número de correlativo de registro se incrementa automáticamente.',
   },
   {
     targetId: 'tour-step-2',
-    title: '2. Unidad, Semana y Tema',
-    badge: 'Paso 2 de 5',
+    title: '3. Unidad, Semana y Tema',
+    badge: 'Paso 3 de 5',
     icon: BookOpen,
     description:
-      'La semana y unidad se calculan con el calendario oficial 2026-II. Escribe brevemente el tema o actividad programada en tu sílabo.',
-    tips: 'Puedes ajustar manualmente la unidad si tu cátedra maneja 2 o 3 unidades.',
+      'La semana y unidad se calculan automáticamente con el calendario 2026-II. Escriba el tema o actividad programada en su sílabo.',
+    tips: 'Puede ajustar manualmente la unidad según su avance de cátedra.',
   },
   {
     targetId: 'tour-step-3',
-    title: '3. Recursos y Asistencia',
-    badge: 'Paso 3 de 5',
+    title: '4. Recursos y Asistencia',
+    badge: 'Paso 4 de 5',
     icon: Users,
     description:
-      'Marca los recursos didácticos que emplearás (usa el botón "✨ Habituales" para marcar rápido) y registra la cantidad de estudiantes asistentes.',
+      'Seleccione los recursos didácticos empleados (use el botón "✨ Habituales" para marcar rápido) y registre la cantidad de estudiantes asistentes.',
     tips: 'Usa los botones (+ / -) o los accesos rápidos (15, 20, 25...) para agilizar.',
   },
   {
-    targetId: 'tour-step-4',
-    title: '4. Inicio de Clase y Alerta Sonora',
-    badge: 'Paso 4 de 5',
-    icon: PlayCircle,
-    description:
-      'Indica la duración de tu clase y haz clic en "Registrar Inicio de Clase". El sistema activará una alarma push silenciosa 10 minutos antes de terminar.',
-    tips: 'La hora exacta de inicio quedará grabada en el sistema.',
-  },
-  {
     targetId: 'tour-step-5',
-    title: '5. Salida y Ficha en Google Sheets',
+    title: '5. Salida y Envío a Google Sheets',
     badge: 'Paso 5 de 5',
     icon: Send,
     description:
-      'Al terminar tu clase, pulsa "Registrar Salida de Clase" y luego "Finalizar Sesión y Enviar Registro". Se abrirá tu ficha digital para confirmar y guardar en Google Sheets.',
-    tips: 'Una vez enviado, podrás salir del sistema con un solo clic.',
+      'Al terminar su clase, presione "REGISTRAR SALIDA DE CLASE" (el sistema verificará que los datos estén completos) y luego "Finalizar Sesión y Enviar Registro" para guardar en Google Sheets.',
+    tips: 'Una vez enviado, presione "Finalizar y Salir" para dejar libre el quiosco.',
   },
 ]
 

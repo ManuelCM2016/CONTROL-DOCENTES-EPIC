@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import DigitalClock from './DigitalClock'
 import ConfirmationModal from './ConfirmationModal'
+import StartSessionModal from './StartSessionModal'
 import OnboardingTour from './OnboardingTour'
 import { registrarSesion } from '../services/api'
 import { playAlertSound } from '../utils/alertSound'
@@ -55,11 +56,11 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
   const [isSending, setIsSending] = useState(false)
   const [isSent, setIsSent] = useState(false)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [showStartModal, setShowStartModal] = useState(false)
   const [submittedData, setSubmittedData] = useState(null)
 
   // ── Tour Guiado Onboarding ──
   const [isTourOpen, setIsTourOpen] = useState(() => {
-    // Si el docente nunca ha visto el tour en este navegador, activarlo por defecto
     const tourVisto = localStorage.getItem('epic_tour_visto')
     return tourVisto !== 'true'
   })
@@ -104,29 +105,31 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
     }
   }, [])
 
-  // ── Función para generar estado inicial limpio para cada docente ──
+  // ── Inicializador de datos del formulario con automatizaciones ──
   const getAutomatedInitialFormData = useCallback(() => {
     const hoy = new Date().toISOString().split('T')[0]
-    const { semana, unidad } = calcularSemanaYUnidad(hoy)
-    const ultimoNumero = getSiguienteNumeroRegistro(docente?.dni || docente?.codigo)
+    const infoSemestre = calcularSemanaYUnidad(hoy)
+    const numeroRegistro = getSiguienteNumeroRegistro(docente.dni)
+
+    const savedAula = localStorage.getItem('upt_last_aula') || ''
 
     return {
-      numero: ultimoNumero,
-      aulaLab: '',
+      numero: numeroRegistro,
+      aulaLab: savedAula,
       fecha: hoy,
-      unidad: unidad,
-      semanaAcademica: String(semana),
       asignatura: '',
+      unidad: infoSemestre.unidadId || 'I',
+      semanaAcademica: String(infoSemestre.semana || 1),
       temaProgramado: '',
       recursos: [],
-      horaInicio: null,
-      horaFinalizacion: null,
-      numEstudiantes: '',
+      horaInicio: '',
+      horaFinalizacion: '',
+      numEstudiantes: '30',
       observaciones: '',
     }
-  }, [docente])
+  }, [docente.dni])
 
-  // ── Inicializar estado: si hay sesión en curso para este docente se restaura, sino formulario limpio ──
+  // ── Estado del formulario ──
   const [formData, setFormData] = useState(() => {
     const saved = loadFormData()
     if (saved && saved.horaInicio) {
@@ -135,7 +138,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
     return getAutomatedInitialFormData()
   })
 
-  // Derivar sessionState del formData recuperado
+  // Derivar sessionState
   const [sessionState, setSessionState] = useState(() => {
     const saved = loadFormData()
     if (saved?.horaFinalizacion) return 'finished'
@@ -143,58 +146,78 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
     return 'idle'
   })
 
-  // Ref para evitar guardar en el primer render
-  const isFirstRender = useRef(true)
-
-  // ── Auto-guardado en localStorage exclusivo del docente activo ──
+  // ── Al cambiar docente o montar: asegurar aislamiento de datos ──
   useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false
-      return
+    const saved = loadFormData()
+    if (saved && saved.horaInicio) {
+      setFormData({ ...getAutomatedInitialFormData(), ...saved })
+      if (saved.horaFinalizacion) {
+        setSessionState('finished')
+      } else {
+        setSessionState('started')
+      }
+    } else {
+      setFormData(getAutomatedInitialFormData())
+      setSessionState('idle')
+      setIsSent(false)
     }
-    saveFormData(formData)
-  }, [formData, saveFormData])
+  }, [docente.dni, getAutomatedInitialFormData, loadFormData])
 
-  // ── Actualizar campo genérico ──
-  const updateField = useCallback((field, value) => {
+  // ── Auto-guardar formulario en localStorage por docente ──
+  const updateField = (field, value) => {
     setFormData((prev) => {
       const updated = { ...prev, [field]: value }
 
-      // Si cambia la fecha, recalcular automáticamente Semana y Unidad
+      // Si cambia la fecha, autocalcular semana y unidad
       if (field === 'fecha' && value) {
-        const { semana, unidad } = calcularSemanaYUnidad(value)
-        updated.semanaAcademica = String(semana)
-        updated.unidad = unidad
+        const info = calcularSemanaYUnidad(value)
+        if (info.unidadId) updated.unidad = info.unidadId
+        if (info.semana) updated.semanaAcademica = String(info.semana)
       }
 
+      // Si cambia el aula, recordar para la próxima
+      if (field === 'aulaLab' && value) {
+        localStorage.setItem('upt_last_aula', value)
+      }
+
+      saveFormData(updated)
       return updated
     })
-  }, [])
+  }
 
-  // ── Alternar recurso individual ──
-  const toggleRecurso = useCallback((recursoId) => {
-    setFormData((prev) => ({
-      ...prev,
-      recursos: prev.recursos.includes(recursoId)
+  // Toggle de recurso individual
+  const toggleRecurso = (recursoId) => {
+    setFormData((prev) => {
+      const exists = prev.recursos.includes(recursoId)
+      const newRecursos = exists
         ? prev.recursos.filter((r) => r !== recursoId)
-        : [...prev.recursos, recursoId],
-    }))
-  }, [])
+        : [...prev.recursos, recursoId]
+      const updated = { ...prev, recursos: newRecursos }
+      saveFormData(updated)
+      return updated
+    })
+  }
 
-  // ── Preset rápido de recursos habituales ──
+  // Aplicar preset habitual
   const aplicarRecursosHabituales = () => {
-    setFormData((prev) => ({
-      ...prev,
-      recursos: [...new Set([...prev.recursos, ...RECURSOS_HABITUALES])],
-    }))
-    showToast('info', '✨ Recursos habituales seleccionados')
+    setFormData((prev) => {
+      const updated = { ...prev, recursos: [...RECURSOS_HABITUALES] }
+      saveFormData(updated)
+      return updated
+    })
+    showToast('info', 'Recursos habituales aplicados')
   }
 
+  // Limpiar todos los recursos
   const limpiarRecursos = () => {
-    setFormData((prev) => ({ ...prev, recursos: [] }))
+    setFormData((prev) => {
+      const updated = { ...prev, recursos: [] }
+      saveFormData(updated)
+      return updated
+    })
   }
 
-  // ── Ajustar asistencia con stepper ──
+  // Stepper de asistencia (+1 / -1)
   const ajustarAsistencia = (delta) => {
     setFormData((prev) => {
       const actual = parseInt(prev.numEstudiantes, 10) || 0
@@ -226,30 +249,8 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
     return { completados, total, porcentaje }
   }, [formData])
 
-  // ── Registrar Inicio de Clase ──
+  // ── Registrar Inicio de Clase (Inmediato al entrar al aula) ──
   const handleRegistrarInicio = () => {
-    // Validaciones
-    const requiredFields = [
-      { key: 'aulaLab', name: 'Aula / Laboratorio' },
-      { key: 'fecha', name: 'Fecha' },
-      { key: 'asignatura', name: 'Asignatura y Sección' },
-      { key: 'unidad', name: 'Unidad' },
-      { key: 'semanaAcademica', name: 'N° de Semana Académica' },
-      { key: 'temaProgramado', name: 'Tema Programado en el Sílabo' },
-      { key: 'numEstudiantes', name: 'N° de Estudiantes Asistentes' },
-    ]
-
-    const missingField = requiredFields.find((field) => !formData[field.key])
-    if (missingField) {
-      showToast('error', `El campo "${missingField.name}" es obligatorio.`)
-      return
-    }
-
-    if (formData.recursos.length < 1) {
-      showToast('error', 'Seleccione al menos un recurso utilizado.')
-      return
-    }
-
     const now = new Date().toLocaleTimeString('es-PE', {
       hour: '2-digit',
       minute: '2-digit',
@@ -263,7 +264,8 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       return updated
     })
     setSessionState('started')
-    showToast('success', `Inicio de clase registrado a las ${now}`)
+    setShowStartModal(true)
+    showToast('success', `¡Inicio de clase registrado a las ${now}!`)
 
     // ── Programar notificación push ──
     const totalMinutos = (parseInt(duracionHoras, 10) || 0) * 60 + (parseInt(duracionMinutos, 10) || 0)
@@ -295,8 +297,30 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
     }
   }
 
-  // ── Registrar Salida ──
+  // ── Registrar Salida (Requiere formulario completado antes de marcar salida) ──
   const handleRegistrarSalida = () => {
+    // Validaciones estrictas al momento de registrar la salida de clase
+    const requiredFields = [
+      { key: 'aulaLab', name: 'Aula / Laboratorio' },
+      { key: 'fecha', name: 'Fecha' },
+      { key: 'asignatura', name: 'Asignatura y Sección' },
+      { key: 'unidad', name: 'Unidad Académica' },
+      { key: 'semanaAcademica', name: 'N° de Semana Académica' },
+      { key: 'temaProgramado', name: 'Tema Programado en el Sílabo' },
+      { key: 'numEstudiantes', name: 'N° de Estudiantes Asistentes' },
+    ]
+
+    const missingField = requiredFields.find((field) => !formData[field.key]?.trim?.() && !formData[field.key])
+    if (missingField) {
+      showToast('error', `⚠️ Debe completar el campo "${missingField.name}" antes de registrar su salida.`)
+      return
+    }
+
+    if (formData.recursos.length < 1) {
+      showToast('error', '⚠️ Seleccione al menos un recurso utilizado antes de registrar su salida.')
+      return
+    }
+
     const now = new Date().toLocaleTimeString('es-PE', {
       hour: '2-digit',
       minute: '2-digit',
@@ -310,7 +334,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       return updated
     })
     setSessionState('finished')
-    showToast('success', `Salida registrada a las ${now}`)
+    showToast('success', `Salida de clase registrada a las ${now}. Ahora puede enviar su registro.`)
 
     // Cancelar notificación pendiente
     if (notificationTimeoutRef.current) {
@@ -564,13 +588,198 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
             </div>
           </motion.section>
 
-          {/* ─── DATOS DE LA SESIÓN ─── */}
+          {/* ─── PANEL SUPERIOR DE INICIO RÁPIDO DE CLASE ─── */}
           <motion.section variants={itemVariants}>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-1.5 h-5 bg-maroon-700 rounded-full" />
-              <h2 className={`text-xs font-extrabold uppercase tracking-wider ${isDarkMode ? 'text-maroon-300' : 'text-red-900'}`}>
-                Datos de la Sesión de Clase
-              </h2>
+            <div id="tour-step-4">
+              {sessionState === 'idle' ? (
+                <motion.div
+                  animate={{
+                    boxShadow: isDarkMode
+                      ? [
+                          '0 0 0 0 rgba(16, 185, 129, 0.1)',
+                          '0 0 28px 6px rgba(16, 185, 129, 0.35)',
+                          '0 0 0 0 rgba(16, 185, 129, 0.1)',
+                        ]
+                      : [
+                          '0 0 0 0 rgba(5, 150, 105, 0.1)',
+                          '0 0 24px 6px rgba(5, 150, 105, 0.28)',
+                          '0 0 0 0 rgba(5, 150, 105, 0.1)',
+                        ],
+                    borderColor: isDarkMode
+                      ? ['rgba(16, 185, 129, 0.4)', 'rgba(52, 211, 153, 0.85)', 'rgba(16, 185, 129, 0.4)']
+                      : ['rgba(110, 231, 183, 0.8)', 'rgba(16, 185, 129, 1)', 'rgba(110, 231, 183, 0.8)'],
+                  }}
+                  transition={{
+                    duration: 2.2,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                  }}
+                  className={`p-5 sm:p-6 rounded-3xl border-2 transition-all duration-300 ${
+                    isDarkMode
+                      ? 'bg-gradient-to-r from-emerald-950/40 via-slate-900/90 to-emerald-950/30 shadow-xl shadow-emerald-950/30'
+                      : 'bg-gradient-to-r from-emerald-50 via-white to-emerald-50 shadow-lg shadow-emerald-500/10'
+                  }`}
+                >
+                  <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-5">
+                    {/* Left: Título y Duración */}
+                    <div className="space-y-3 flex-1">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/30 shadow-sm">
+                          <PlayCircle className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h2 className={`text-sm sm:text-base font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                              PASO 1: REGISTRAR INICIO DE CLASE
+                            </h2>
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-600 text-white shadow-xs animate-pulse">
+                              ⚡ Iniciar Aquí
+                            </span>
+                          </div>
+                          <p className={`text-xs font-medium mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                            Marque su ingreso de inmediato al entrar al aula. Podrá llenar el formulario durante el dictado de su clase.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Selector de Duración y Alerta */}
+                      <div className="flex flex-wrap items-center gap-3 pt-1">
+                        <div className="flex items-center gap-2">
+                          <Timer className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          <span className={`text-xs font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                            Duración estimada:
+                          </span>
+                          <input
+                            type="number"
+                            id="campo-duracion-horas"
+                            value={duracionHoras}
+                            onChange={(e) => setDuracionHoras(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                            min="0"
+                            max="12"
+                            className={`${isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'} text-center !py-1.5 !px-2 w-16 font-mono font-bold text-sm`}
+                          />
+                          <span className={`text-xs font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>h</span>
+                          <input
+                            type="number"
+                            id="campo-duracion-minutos"
+                            value={duracionMinutos}
+                            onChange={(e) => setDuracionMinutos(Math.min(59, Math.max(0, parseInt(e.target.value, 10) || 0)))}
+                            min="0"
+                            max="59"
+                            className={`${isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'} text-center !py-1.5 !px-2 w-16 font-mono font-bold text-sm`}
+                          />
+                          <span className={`text-xs font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>min</span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                          <Bell className="w-3.5 h-3.5" />
+                          <span>Alarma sonora 10 min antes</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: Gran Botón de Inicio con Pulso Suave */}
+                    <div className="lg:w-72 shrink-0">
+                      <motion.button
+                        animate={{
+                          scale: [1, 1.02, 1],
+                          boxShadow: [
+                            '0 10px 25px -5px rgba(5, 150, 105, 0.35)',
+                            '0 15px 35px -5px rgba(5, 150, 105, 0.6)',
+                            '0 10px 25px -5px rgba(5, 150, 105, 0.35)',
+                          ],
+                        }}
+                        transition={{
+                          duration: 2.2,
+                          repeat: Infinity,
+                          ease: 'easeInOut',
+                        }}
+                        whileHover={{ scale: 1.04 }}
+                        whileTap={{ scale: 0.97 }}
+                        onClick={handleRegistrarInicio}
+                        className="w-full py-4 px-6 rounded-2xl font-black text-sm sm:text-base tracking-wide bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-600 text-white shadow-xl flex items-center justify-center gap-2.5 transition-all cursor-pointer ring-2 ring-emerald-400/50"
+                        id="btn-registro-inicio"
+                      >
+                        <PlayCircle className="w-5 h-5" />
+                        <span>REGISTRAR INICIO DE CLASE</span>
+                      </motion.button>
+                    </div>
+                  </div>
+                </motion.div>
+              ) : sessionState === 'started' ? (
+                <div className={`p-4 sm:p-5 rounded-3xl border-2 flex flex-col sm:flex-row items-center justify-between gap-3 ${
+                  isDarkMode
+                    ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                    : 'bg-emerald-50 border-emerald-300 text-emerald-900 shadow-sm'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <span className="relative flex h-3.5 w-3.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500"></span>
+                    </span>
+                    <div>
+                      <p className="text-xs font-extrabold uppercase tracking-wider">
+                        CLASE EN CURSO
+                      </p>
+                      <p className="text-xs font-medium opacity-90">
+                        Hora de Inicio registrada: <strong className="font-mono text-sm font-black">{formData.horaInicio}</strong>
+                      </p>
+                    </div>
+                  </div>
+                  <span className={`text-xs font-semibold px-3 py-1 rounded-full border ${
+                    isDarkMode ? 'bg-emerald-900/40 border-emerald-500/30 text-emerald-300' : 'bg-white border-emerald-200 text-emerald-800'
+                  }`}>
+                    📝 Complete los datos abajo durante su sesión
+                  </span>
+                </div>
+              ) : (
+                <div className={`p-4 sm:p-5 rounded-3xl border-2 flex flex-col sm:flex-row items-center justify-between gap-3 ${
+                  isDarkMode
+                    ? 'bg-slate-900/90 border-slate-700 text-slate-200'
+                    : 'bg-slate-100 border-slate-300 text-slate-800'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                    <div>
+                      <p className="text-xs font-extrabold uppercase tracking-wider">
+                        SESIÓN DE CLASE CONCLUIDA
+                      </p>
+                      <p className="text-xs font-mono font-bold">
+                        Inicio: {formData.horaInicio} ➔ Salida: {formData.horaFinalizacion}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                    Listo para enviar a Google Sheets
+                  </span>
+                </div>
+              )}
+            </div>
+          </motion.section>
+
+          {/* ─── DATOS DE LA SESIÓN (PASO 2) ─── */}
+          <motion.section variants={itemVariants}>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-1.5 h-5 bg-maroon-700 rounded-full" />
+                <h2 className={`text-xs font-extrabold uppercase tracking-wider ${isDarkMode ? 'text-maroon-300' : 'text-red-900'}`}>
+                  {sessionState === 'started'
+                    ? 'PASO 2: DATOS DE LA SESIÓN DE CLASE'
+                    : 'Datos de la Sesión de Clase'}
+                </h2>
+              </div>
+
+              {/* Aviso pequeño estático (sin parpadeo) al iniciar la clase */}
+              {sessionState === 'started' && (
+                <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                  isDarkMode
+                    ? 'bg-white/5 border-white/10 text-slate-300'
+                    : 'bg-white border-slate-300 text-slate-700 shadow-xs'
+                }`}>
+                  <FileText className="w-3.5 h-3.5 text-maroon-600 dark:text-maroon-400" />
+                  <span>Complete estos campos durante su clase</span>
+                </div>
+              )}
             </div>
 
             <div className={`rounded-3xl border transition-all duration-500 overflow-hidden ${isDarkMode ? 'glass-card-dark' : 'glass-card-light'
@@ -907,208 +1116,99 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                 </div>
               </div>
 
-              {/* ─── ACTION BUTTONS BAR ─── */}
+              {/* ─── ACTION BUTTONS BAR (INFERIOR) ─── */}
               <div className={`border-t-2 px-5 sm:px-7 py-5 transition-colors duration-500 ${isDarkMode ? 'border-white/10 bg-black/20' : 'border-slate-200 bg-slate-50'
                 }`}>
 
-                {/* ── Duración de la sesión (tour-step-4) ── */}
-                <div id="tour-step-4" className="space-y-4">
+                {/* Time Display Row */}
+                <div className="flex flex-wrap items-center gap-3 mb-4">
+                  <TimeDisplay
+                    isDarkMode={isDarkMode}
+                    label="Hora de Inicio"
+                    value={formData.horaInicio}
+                    active={sessionState === 'started' || sessionState === 'finished'}
+                    color="emerald"
+                  />
+                  <TimeDisplay
+                    isDarkMode={isDarkMode}
+                    label="Hora de Finalización"
+                    value={formData.horaFinalizacion}
+                    active={sessionState === 'finished'}
+                    color="rose"
+                  />
+                </div>
+
+                {/* Main Action Buttons */}
+                <div className="space-y-3">
                   {sessionState === 'idle' && (
-                    <div className={`mb-5 p-4 sm:p-5 rounded-2xl border-2 border-dashed transition-all ${isDarkMode ? 'border-maroon-500/30 bg-maroon-950/20' : 'border-red-800/30 bg-white shadow-sm'
-                      }`}>
-                      <label className={`label-institutional flex items-center gap-1.5 mb-3 ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`}>
-                        <Timer className="w-4 h-4 text-maroon-500" />
-                        Duración Estimada de la Clase
-                        <span className="text-slate-400 font-normal text-[11px] ml-1">
-                          (Recibirás una alerta 10 min antes del fin)
-                        </span>
-                      </label>
-                      <div className="flex flex-wrap items-center gap-4">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            id="campo-duracion-horas"
-                            value={duracionHoras}
-                            onChange={(e) => setDuracionHoras(Math.max(0, parseInt(e.target.value, 10) || 0))}
-                            min="0"
-                            max="12"
-                            className={`${isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'} text-center !py-2.5 w-20 font-mono font-bold`}
-                          />
-                          <span className={`text-sm font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>hora(s)</span>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            id="campo-duracion-minutos"
-                            value={duracionMinutos}
-                            onChange={(e) => setDuracionMinutos(Math.min(59, Math.max(0, parseInt(e.target.value, 10) || 0)))}
-                            min="0"
-                            max="59"
-                            className={`${isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'} text-center !py-2.5 w-20 font-mono font-bold`}
-                          />
-                          <span className={`text-sm font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>minuto(s)</span>
-                        </div>
-
-                        <div className="ml-auto flex items-center gap-1.5 px-3 py-2 rounded-xl bg-maroon-500/10 border border-maroon-500/20">
-                          {notificationPermission === 'granted' ? (
-                            <>
-                              <Bell className="w-4 h-4 text-maroon-500" />
-                              <span className={`text-xs font-semibold ${isDarkMode ? 'text-maroon-300' : 'text-maroon-700'}`}>
-                                Alertas con sonido activas
-                              </span>
-                            </>
-                          ) : notificationPermission === 'denied' ? (
-                            <>
-                              <Bell className="w-4 h-4 text-slate-400" />
-                              <span className="text-xs font-medium text-slate-500">Alertas bloqueadas en navegador</span>
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => Notification.requestPermission().then((p) => setNotificationPermission(p))}
-                              className="flex items-center gap-1.5 text-xs font-bold text-maroon-600 hover:text-maroon-800 transition-colors"
-                            >
-                              <BellRing className="w-4 h-4 animate-bounce" />
-                              Activar alertas de navegador
-                            </button>
-                          )}
-                        </div>
-                      </div>
+                    <div className="text-center py-2">
+                      <p className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                        👆 Por favor, pulse <strong className="text-emerald-500 font-bold">"REGISTRAR INICIO DE CLASE"</strong> en la parte superior para comenzar su sesión.
+                      </p>
                     </div>
                   )}
 
-                  {/* Time Display Row */}
-                  <div className="flex flex-wrap items-center gap-3 mb-4">
-                    <TimeDisplay
-                      isDarkMode={isDarkMode}
-                      label="Hora de Inicio"
-                      value={formData.horaInicio}
-                      active={sessionState === 'started' || sessionState === 'finished'}
-                      color="emerald"
-                    />
-                    <TimeDisplay
-                      isDarkMode={isDarkMode}
-                      label="Hora de Finalización"
-                      value={formData.horaFinalizacion}
-                      active={sessionState === 'finished'}
-                      color="rose"
-                    />
-                  </div>
-
-                  {/* Main Action Buttons */}
-                  <div className="flex flex-col sm:flex-row gap-3.5">
-                    <motion.button
-                      whileHover={sessionState === 'idle' ? { scale: 1.015 } : {}}
-                      whileTap={sessionState === 'idle' ? { scale: 0.985 } : {}}
-                      onClick={handleRegistrarInicio}
-                      disabled={sessionState !== 'idle'}
-                      className={`
-                        flex-1 flex items-center justify-center gap-3 px-6 py-4 rounded-2xl
-                        font-bold text-sm sm:text-base tracking-wide transition-all duration-300
-                        ${sessionState === 'idle'
-                          ? 'bg-gradient-to-r from-emerald-600 to-emerald-700 text-white shadow-xl shadow-emerald-600/25 hover:shadow-2xl hover:shadow-emerald-600/35 hover:from-emerald-500 hover:to-emerald-600'
-                          : sessionState === 'started' || sessionState === 'finished'
-                            ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 cursor-not-allowed'
-                            : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
-                        }
-                      `}
-                      id="btn-registro-inicio"
-                    >
-                      <PlayCircle className="w-5 h-5" />
-                      <span>
-                        {sessionState === 'idle' ? 'Registrar Inicio de Clase' : `Inicio Registrado — ${formData.horaInicio}`}
-                      </span>
-                    </motion.button>
-
-                    <motion.button
-                      whileHover={sessionState === 'started' ? { scale: 1.015 } : {}}
-                      whileTap={sessionState === 'started' ? { scale: 0.985 } : {}}
-                      onClick={handleRegistrarSalida}
-                      disabled={sessionState !== 'started'}
-                      className={`
-                        flex-1 flex items-center justify-center gap-3 px-6 py-4 rounded-2xl
-                        font-bold text-sm sm:text-base tracking-wide transition-all duration-300
-                        ${sessionState === 'started'
-                          ? 'bg-gradient-to-r from-maroon-700 via-maroon-800 to-maroon-900 text-white shadow-xl shadow-maroon-800/30 hover:shadow-2xl hover:shadow-maroon-800/40 hover:from-maroon-600 pulse-glow'
-                          : sessionState === 'finished'
-                            ? 'bg-maroon-500/15 text-maroon-600 dark:text-maroon-400 border border-maroon-500/30 cursor-not-allowed'
-                            : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed border border-transparent'
-                        }
-                      `}
-                      id="btn-registro-salida"
-                    >
-                      <StopCircle className="w-5 h-5" />
-                      <span>
-                        {sessionState === 'finished'
-                          ? `Salida Registrada — ${formData.horaFinalizacion}`
-                          : 'Registrar Salida de Clase'}
-                      </span>
-                    </motion.button>
-                  </div>
-                </div>
-
-                {/* ── Botón Finalizar y Enviar (tour-step-5) con Validación Inteligente (Opción 2) ── */}
-                <div id="tour-step-5">
-                  <div className="mt-5 pt-5 border-t border-slate-200/60 dark:border-white/10">
-                    <motion.button
-                      whileHover={!isSending ? { scale: 1.01 } : {}}
-                      whileTap={!isSending ? { scale: 0.99 } : {}}
-                      onClick={() => {
-                        if (sessionState === 'idle') {
-                          showToast('error', '⚠️ Debe registrar el Inicio de Clase antes de finalizar y enviar.')
-                          return
-                        }
-                        if (sessionState === 'started') {
-                          showToast('error', '⏳ La clase está en curso. Primero registre la Salida de Clase antes de enviar.')
-                          return
-                        }
-                        setShowSuccessModal(true)
-                      }}
-                      disabled={isSending}
-                      className={`
-                        w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl
-                        font-bold text-base tracking-wide transition-all duration-300 cursor-pointer
-                        ${isSent
-                          ? 'bg-emerald-600/20 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border-2 border-emerald-500 hover:bg-emerald-600/30 shadow-lg shadow-emerald-500/10'
-                          : sessionState === 'finished'
-                            ? 'bg-gradient-to-r from-red-900 via-red-800 to-red-900 text-white shadow-2xl shadow-red-950/40 hover:from-red-800 hover:to-red-700 ring-2 ring-red-500/40'
-                            : isDarkMode
-                              ? 'bg-slate-800/80 text-slate-400 border-2 border-slate-700/80 hover:border-slate-600 hover:text-slate-300'
-                              : 'bg-slate-100 text-slate-500 border-2 border-slate-200 hover:border-slate-300 hover:text-slate-700'
-                        }
-                      `}
-                      id="btn-finalizar-enviar"
-                    >
-                      {isSent ? (
-                        <>
-                          <CheckCircle2 className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
-                          <span>Registro Enviado y Guardado en Google Sheets (Ver Ficha)</span>
-                        </>
-                      ) : isSending ? (
-                        <>
-                          <Loader2 className="w-6 h-6 animate-spin" />
-                          <span>Guardando datos en Google Sheets...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Send className={`w-5 h-5 ${sessionState === 'finished' ? 'text-white' : 'opacity-60'}`} />
-                          <span>Finalizar Sesión y Enviar Registro</span>
-                        </>
-                      )}
-                    </motion.button>
-                    {!isSent && !isSending && (
-                      <p className={`text-center text-xs mt-2.5 font-medium transition-colors ${
-                        sessionState === 'finished'
-                          ? 'text-emerald-600 dark:text-emerald-400 font-bold'
-                          : isDarkMode ? 'text-slate-500' : 'text-slate-400'
-                      }`}>
-                        {sessionState === 'idle' && 'ℹ️ Registre el inicio de clase para comenzar.'}
-                        {sessionState === 'started' && '⏳ Clase en curso. Al terminar, presione "Registrar Salida de Clase".'}
-                        {sessionState === 'finished' && '✅ Salida registrada. Presione para confirmar y enviar su ficha a Google Sheets.'}
+                  {sessionState === 'started' && (
+                    <div id="tour-step-5">
+                      <motion.button
+                        whileHover={{ scale: 1.01 }}
+                        whileTap={{ scale: 0.99 }}
+                        onClick={handleRegistrarSalida}
+                        className="w-full py-4 px-6 rounded-2xl font-black text-base tracking-wide bg-gradient-to-r from-red-800 via-red-700 to-red-900 text-white shadow-xl shadow-red-950/40 hover:from-red-700 hover:to-red-800 flex items-center justify-center gap-3 transition-all cursor-pointer ring-2 ring-red-500/40 pulse-glow"
+                        id="btn-registro-salida"
+                      >
+                        <StopCircle className="w-5 h-5" />
+                        <span>REGISTRAR SALIDA DE CLASE</span>
+                      </motion.button>
+                      <p className={`text-center text-xs mt-2.5 font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                        ⚠️ Asegúrese de haber completado todos los datos del formulario antes de registrar su salida.
                       </p>
-                    )}
-                  </div>
+                    </div>
+                  )}
+
+                  {sessionState === 'finished' && (
+                    <div id="tour-step-5">
+                      <motion.button
+                        whileHover={!isSending ? { scale: 1.01 } : {}}
+                        whileTap={!isSending ? { scale: 0.99 } : {}}
+                        onClick={() => setShowSuccessModal(true)}
+                        disabled={isSending}
+                        className={`
+                          w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl
+                          font-bold text-base tracking-wide transition-all duration-300 cursor-pointer
+                          ${isSent
+                            ? 'bg-emerald-600/20 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border-2 border-emerald-500 hover:bg-emerald-600/30 shadow-lg shadow-emerald-500/10'
+                            : isSending
+                              ? 'bg-slate-200 dark:bg-slate-800 text-slate-500 cursor-wait'
+                              : 'bg-gradient-to-r from-red-900 via-red-800 to-red-900 text-white shadow-2xl shadow-red-950/40 hover:from-red-800 hover:to-red-700 ring-2 ring-red-500/40'
+                          }
+                        `}
+                        id="btn-finalizar-enviar"
+                      >
+                        {isSent ? (
+                          <>
+                            <CheckCircle2 className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+                            <span>Registro Enviado y Guardado en Google Sheets (Ver Ficha)</span>
+                          </>
+                        ) : isSending ? (
+                          <>
+                            <Loader2 className="w-6 h-6 animate-spin" />
+                            <span>Guardando datos en Google Sheets...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-5 h-5 text-white" />
+                            <span>Finalizar Sesión y Enviar Registro</span>
+                          </>
+                        )}
+                      </motion.button>
+                      {!isSent && !isSending && (
+                        <p className="text-center text-xs mt-2.5 font-bold text-emerald-600 dark:text-emerald-400">
+                          ✅ Salida registrada. Presione para confirmar y enviar su ficha a Google Sheets.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1125,6 +1225,15 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
           </motion.footer>
         </motion.div>
       </main>
+
+      {/* ═══════════ MODAL FLOTANTE DE INICIO DE SESIÓN CON AUTO-CIERRE 10S ═══════════ */}
+      <StartSessionModal
+        isOpen={showStartModal}
+        onClose={() => setShowStartModal(false)}
+        horaInicio={formData.horaInicio}
+        docente={docente}
+        isDarkMode={isDarkMode}
+      />
 
       {/* ═══════════ TOUR GUIADO ONBOARDING (NUBES INSTRUCTIVAS) ═══════════ */}
       <OnboardingTour
