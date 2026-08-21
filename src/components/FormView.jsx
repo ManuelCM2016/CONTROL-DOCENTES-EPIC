@@ -6,7 +6,7 @@ import {
   MonitorPlay, Users, MessageSquare, PlayCircle,
   StopCircle, ClipboardCheck, Hash, User, Send, Loader2, CheckCircle2,
   Bell, Timer, BellRing, Sun, Moon, Sparkles, Check, ChevronRight,
-  Info, Plus, Minus, RotateCcw
+  Info, Plus, Minus, RotateCcw, RefreshCw, CalendarClock, ShieldCheck
 } from 'lucide-react'
 import DigitalClock from './DigitalClock'
 import ConfirmationModal from './ConfirmationModal'
@@ -20,6 +20,37 @@ import {
   guardarNumeroRegistroCompletado,
   SEMESTRE_CONFIG
 } from '../utils/academicCalendar'
+
+// Lista oficial de Aulas y Laboratorios (orden exacto institucional)
+const AULAS_LABORATORIOS_OPTIONS = [
+  'BLOQUE R-207',
+  'LABORATORIO R-205',
+  'LABORATORIO R-206',
+  'BLOQUE R-303',
+  'BLOQUE R-308',
+  'BLOQUE R-315',
+  'BLOQUE R-3016',
+  'BLOQUE R-317',
+  'BLOQUE R-408',
+  'R-415',
+  'BLOQUE R-416',
+  'BLOQUE R-417',
+  'SUELOS S-206',
+  'SUELOS S-301',
+  'SUELOS S-303',
+  'SUELOS S-305',
+  'SUELOS S-306',
+  'SUELOS S-307',
+  'Laboratorio de Física',
+  'Laboratorio de Química',
+  'Laboratorio de Mecánica de Suelos',
+  'Laboratorio de Concreto',
+  'Laboratorio de Pavimentos',
+  'Laboratorio de Estructuras',
+  'Laboratorio de Hidráulica',
+  'Gabinete de Topografía',
+  'Laboratorio BIM',
+]
 
 // Opciones de recursos utilizados
 const RECURSOS_OPTIONS = [
@@ -118,7 +149,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       aulaLab: savedAula,
       fecha: hoy,
       asignatura: '',
-      unidad: infoSemestre.unidadId || 'I',
+      unidad: infoSemestre.unidad || 'I',
       semanaAcademica: String(infoSemestre.semana || 1),
       temaProgramado: '',
       recursos: [],
@@ -126,6 +157,8 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       horaFinalizacion: '',
       numEstudiantes: '30',
       observaciones: '',
+      tipoSesion: 'Clase Regular',
+      fechaRecuperar: '',
     }
   }, [docente.dni])
 
@@ -168,10 +201,29 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
     setFormData((prev) => {
       const updated = { ...prev, [field]: value }
 
-      // Si cambia la fecha, autocalcular semana y unidad
-      if (field === 'fecha' && value) {
+      // Si cambia la fecha Y es Clase Regular, autocalcular semana y unidad
+      if (field === 'fecha' && value && updated.tipoSesion === 'Clase Regular') {
         const info = calcularSemanaYUnidad(value)
-        if (info.unidadId) updated.unidad = info.unidadId
+        if (info.unidad) updated.unidad = info.unidad
+        if (info.semana) updated.semanaAcademica = String(info.semana)
+      }
+
+      // Si cambia el tipo de sesión
+      if (field === 'tipoSesion') {
+        if (value === 'Clase Regular') {
+          // Recalcular con la fecha actual del formulario
+          const info = calcularSemanaYUnidad(updated.fecha)
+          updated.unidad = info.unidad || 'I'
+          updated.semanaAcademica = String(info.semana || 1)
+          updated.fechaRecuperar = ''
+        }
+        // Si es Recuperación, mantenemos los valores actuales (el docente los ajustará)
+      }
+
+      // Si cambia la fecha de recuperación, recalcular con esa fecha
+      if (field === 'fechaRecuperar' && value && updated.tipoSesion !== 'Clase Regular') {
+        const info = calcularSemanaYUnidad(value)
+        if (info.unidad) updated.unidad = info.unidad
         if (info.semana) updated.semanaAcademica = String(info.semana)
       }
 
@@ -367,6 +419,8 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
         horaFinalizacion: formData.horaFinalizacion,
         numEstudiantes: formData.numEstudiantes,
         observaciones: formData.observaciones,
+        tipo_sesion: formData.tipoSesion || 'Clase Regular',
+        fecha_recuperar: formData.fechaRecuperar || '',
       }
 
       const result = await registrarSesion(payload)
@@ -808,14 +862,17 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                         <span><MapPin className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Aula / Laboratorio</span>
                         {formData.aulaLab && <Check className="w-3.5 h-3.5 text-emerald-500" />}
                       </label>
-                      <input
-                        type="text"
+                      <select
                         id="campo-aula"
                         value={formData.aulaLab}
                         onChange={(e) => updateField('aulaLab', e.target.value)}
-                        placeholder="Ej. Aula 301, Lab. Cómputo 2"
-                        className={isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'}
-                      />
+                        className={isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'}
+                      >
+                        <option value="">Seleccione Aula / Laboratorio</option>
+                        {AULAS_LABORATORIOS_OPTIONS.map((aula) => (
+                          <option key={aula} value={aula}>{aula}</option>
+                        ))}
+                      </select>
                     </div>
 
                     <div>
@@ -853,19 +910,97 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                   </div>
                 </div>
 
+                {/* ─── TIPO DE SESIÓN ─── */}
+                <div className="space-y-3 p-2 rounded-2xl transition-all">
+                  <label className={`label-institutional flex items-center gap-1 !mb-1 ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`}>
+                    <ShieldCheck className="w-3.5 h-3.5 text-maroon-500" /> Tipo de Sesión
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {[
+                      { value: 'Clase Regular', icon: <BookOpen className="w-4 h-4" />, label: '🏫 Clase Regular' },
+                      { value: 'Recuperación / Adelanto', icon: <RefreshCw className="w-4 h-4" />, label: '🔄 Recuperación / Adelanto' },
+                    ].map((tipo) => (
+                      <button
+                        key={tipo.value}
+                        type="button"
+                        onClick={() => updateField('tipoSesion', tipo.value)}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 text-xs font-bold transition-all duration-300 ${
+                          formData.tipoSesion === tipo.value
+                            ? tipo.value === 'Clase Regular'
+                              ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-500/20 scale-[1.02]'
+                              : 'bg-amber-600 text-white border-amber-500 shadow-lg shadow-amber-500/20 scale-[1.02]'
+                            : isDarkMode
+                              ? 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-700/80 hover:border-slate-600'
+                              : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50 hover:border-slate-400'
+                        }`}
+                      >
+                        {tipo.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* ── Fecha de la clase a recuperar (solo visible en modo Recuperación) ── */}
+                  <AnimatePresence>
+                    {formData.tipoSesion === 'Recuperación / Adelanto' && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.3 }}
+                        className="overflow-hidden"
+                      >
+                        <div className={`mt-2 p-3 rounded-xl border-2 border-dashed ${
+                          isDarkMode
+                            ? 'bg-amber-900/20 border-amber-600/40'
+                            : 'bg-amber-50 border-amber-300'
+                        }`}>
+                          <label className={`label-institutional flex items-center gap-1.5 !mb-2 ${isDarkMode ? '!text-amber-300' : '!text-amber-800'}`} htmlFor="campo-fecha-recuperar">
+                            <CalendarClock className="w-3.5 h-3.5" /> Fecha de la clase a recuperar
+                          </label>
+                          <input
+                            type="date"
+                            id="campo-fecha-recuperar"
+                            value={formData.fechaRecuperar}
+                            onChange={(e) => updateField('fechaRecuperar', e.target.value)}
+                            className={isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'}
+                          />
+                          <p className={`text-[10px] mt-1.5 font-medium ${
+                            isDarkMode ? 'text-amber-400/80' : 'text-amber-700'
+                          }`}>
+                            📌 Seleccione la fecha original de la clase que se está recuperando. La Unidad y Semana se ajustarán automáticamente.
+                          </p>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
                 {/* Row 3 y 4: Unidad, Semana y Tema (tour-step-2) */}
                 <div id="tour-step-2" className="space-y-4 p-2 rounded-2xl transition-all">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-unidad">
                         <span><Layers className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Unidad Académica</span>
-                        <span className={`text-[10px] font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>6 semanas c/u</span>
+                        <span className={`text-[10px] font-semibold flex items-center gap-1 ${
+                          formData.tipoSesion === 'Clase Regular'
+                            ? isDarkMode ? 'text-emerald-400' : 'text-emerald-600'
+                            : isDarkMode ? 'text-amber-400' : 'text-amber-600'
+                        }`}>
+                          {formData.tipoSesion === 'Clase Regular' ? (
+                            <><Lock className="w-3 h-3" /> Autocalculado</>
+                          ) : (
+                            <>🔓 Editable</>  
+                          )}
+                        </span>
                       </label>
                       <select
                         id="campo-unidad"
                         value={formData.unidad}
                         onChange={(e) => updateField('unidad', e.target.value)}
-                        className={isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'}
+                        disabled={formData.tipoSesion === 'Clase Regular'}
+                        className={`${isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'} ${
+                          formData.tipoSesion === 'Clase Regular' ? 'opacity-70 cursor-not-allowed' : ''
+                        }`}
                       >
                         <option value="">Seleccione Unidad</option>
                         <option value="I">Unidad I</option>
@@ -877,13 +1012,26 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                     <div>
                       <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-semana">
                         <span><Calendar className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> N° de Semana Académica</span>
-                        <span className={`text-[10px] font-bold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>18 semanas en total</span>
+                        <span className={`text-[10px] font-bold flex items-center gap-1 ${
+                          formData.tipoSesion === 'Clase Regular'
+                            ? isDarkMode ? 'text-emerald-400' : 'text-emerald-600'
+                            : isDarkMode ? 'text-amber-400' : 'text-amber-600'
+                        }`}>
+                          {formData.tipoSesion === 'Clase Regular' ? (
+                            <><Lock className="w-3 h-3" /> Autocalculado</>
+                          ) : (
+                            <>🔓 Editable</>  
+                          )}
+                        </span>
                       </label>
                       <select
                         id="campo-semana"
                         value={formData.semanaAcademica}
                         onChange={(e) => updateField('semanaAcademica', e.target.value)}
-                        className={isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'}
+                        disabled={formData.tipoSesion === 'Clase Regular'}
+                        className={`${isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'} ${
+                          formData.tipoSesion === 'Clase Regular' ? 'opacity-70 cursor-not-allowed' : ''
+                        }`}
                       >
                         <option value="">Seleccione Semana</option>
                         {Array.from({ length: SEMESTRE_CONFIG.totalSemanas }, (_, i) => {

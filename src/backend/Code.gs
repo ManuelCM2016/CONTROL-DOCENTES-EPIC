@@ -152,27 +152,32 @@ function doPost(e) {
       'dd/MM/yyyy HH:mm:ss'
     );
 
-    // Construir fila en el orden exacto de las 19 columnas de BASE_DE_DATOS
+    // Construir fila en el orden exacto de las columnas de BASE_DE_DATOS
     const newRow = [
-      timestampStr,                          // A: TIMESTAMP
-      payload.dni || '',                     // B: DNI
-      payload.docente || '',                 // C: DOCENTE
-      payload.facultad || '',                // D: FACULTAD
-      payload.escuela || '',                 // E: ESCUELA
-      payload.carrera || '',                 // F: CARRERA
-      payload.numero || '',                  // G: N°
-      payload.aulaLab || '',                 // H: AULA/LAB
-      payload.fecha || '',                   // I: FECHA
-      payload.asignatura || '',              // J: ASIGNATURA (incluye sección)
-      payload.unidad || '',                  // K: UNIDAD
-      payload.semanaAcademica || '',         // L: SEMANA
-      payload.temaProgramado || '',          // M: TEMA PROGRAMADO
-      recursosText,                          // N: RECURSOS UTILIZADOS
-      payload.horaInicio || '',              // O: HORA INICIO
-      payload.horaFinalizacion || '',        // P: HORA FINALIZACIÓN
-      payload.numEstudiantes || '',          // Q: N° ESTUDIANTES
-      '',                                    // R: VALIDACIÓN (lo llena la directora)
-      payload.observaciones || '',           // S: OBSERVACIONES
+      timestampStr,                            // A: TIMESTAMP
+      payload.dni || '',                       // B: DNI
+      payload.docente || '',                   // C: DOCENTE
+      payload.facultad || '',                  // D: FACULTAD
+      payload.escuela || '',                   // E: ESCUELA
+      payload.carrera || '',                   // F: CARRERA
+      payload.numero || '',                    // G: N°
+      payload.aulaLab || '',                   // H: AULA/LAB
+      payload.fecha || '',                     // I: FECHA
+      payload.asignatura || '',                // J: ASIGNATURA
+      payload.seccion || '',                   // K: SECCIÓN
+      payload.unidad || '',                    // L: UNIDAD
+      payload.semanaAcademica || '',           // M: SEMANA
+      payload.temaProgramado || '',            // N: TEMA PROGRAMADO
+      recursosText,                            // O: RECURSOS UTILIZADOS
+      payload.horaInicio || '',                // P: HORA INICIO
+      payload.horaFinalizacion || '',          // Q: HORA FINALIZACIÓN
+      payload.numEstudiantes || '',            // R: N° ESTUDIANTES
+      'PENDIENTE',                             // S: VALIDACIÓN (lo llena la directora)
+      payload.observaciones || '',             // T: OBSERVACIONES
+      
+      // --- NUEVAS VARIABLES ---
+      payload.tipo_sesion || 'Clase Regular',  // U: TIPO DE SESIÓN
+      payload.fecha_recuperar || '',           // V: FECHA A RECUPERAR
     ];
 
     // Insertar al final de la hoja
