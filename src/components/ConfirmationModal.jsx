@@ -3,7 +3,7 @@ import {
   CheckCircle2, X, Calendar, Clock, MapPin, BookOpen,
   User, Users, MonitorPlay, FileText, Send, Loader2,
   LogOut, PlusCircle, Sparkles, ShieldCheck, Database,
-  ClipboardCheck, Edit3
+  ClipboardCheck, Edit3, RefreshCw, CalendarClock
 } from 'lucide-react'
 
 // Mapeo de recursos con iconos
@@ -238,6 +238,40 @@ const ConfirmationModal = ({
                 </div>
 
               </div>
+
+                {/* Tipo de Sesión */}
+                <div className="space-y-0.5">
+                  <span className={`text-[10px] font-extrabold uppercase tracking-wider ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Tipo de Sesión
+                  </span>
+                  <p className={`font-bold flex items-center gap-1.5 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+                    {(data.tipo_sesion || data.tipoSesion || 'Clase Regular') !== 'Clase Regular' ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        <span className="text-amber-500 dark:text-amber-400">{data.tipo_sesion || data.tipoSesion}</span>
+                      </>
+                    ) : (
+                      <>
+                        <BookOpen className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <span className="text-emerald-600 dark:text-emerald-400">Clase Regular</span>
+                      </>
+                    )}
+                  </p>
+                </div>
+
+                {/* Fecha a Recuperar (solo si aplica) */}
+                {(data.fecha_recuperar || data.fechaRecuperar) && (
+                  <div className="space-y-0.5">
+                    <span className={`text-[10px] font-extrabold uppercase tracking-wider ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                      Fecha de Clase a Recuperar
+                    </span>
+                    <p className={`font-bold flex items-center gap-1.5 ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>
+                      <CalendarClock className="w-3.5 h-3.5 shrink-0" />
+                      <span>{data.fecha_recuperar || data.fechaRecuperar}</span>
+                    </p>
+                  </div>
+                )}
+
 
               {/* Tema Desarrollado */}
               <div className="pt-2 border-t border-slate-200/50 dark:border-white/10 space-y-1">
