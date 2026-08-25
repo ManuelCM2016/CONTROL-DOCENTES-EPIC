@@ -6,6 +6,7 @@ import FormView from './components/FormView'
 import Toast from './components/Toast'
 import useSession from './hooks/useSession'
 import { buscarDocente } from './services/api'
+import { mergeHistoryFromCloud } from './utils/historyManager'
 
 function App() {
   const {
@@ -49,6 +50,11 @@ function App() {
       const result = await buscarDocente(identifier)
 
       if (result.success && result.data) {
+        // Si la base de datos devolvió historial previo de clases, sincronizarlo localmente
+        if (Array.isArray(result.data.historial) && result.data.historial.length > 0) {
+          mergeHistoryFromCloud(result.data.dni, result.data.historial)
+        }
+
         startSession(result.data)
         setCurrentView('form')
         setToast({

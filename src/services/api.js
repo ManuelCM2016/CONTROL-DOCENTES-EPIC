@@ -85,6 +85,48 @@ export const buscarDocente = async (identifier) => {
 }
 
 // ══════════════════════════════════════════
+// OBTENER HISTORIAL DE CLASES DEL DOCENTE (GET)
+// ══════════════════════════════════════════
+
+/**
+ * Obtiene el historial de sesiones dictadas de un docente desde Google Sheets
+ * @param {string} identifier - DNI o Código del docente
+ * @returns {Promise<{success: boolean, data?: Array<object>, message?: string}>}
+ */
+export const obtenerHistorialDocente = async (identifier) => {
+  if (shouldUseMock()) {
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    return { success: true, data: [] }
+  }
+
+  try {
+    const url = `${GOOGLE_SCRIPT_URL}?action=historial&id=${encodeURIComponent(identifier)}`
+    const response = await fetchGAS(url)
+
+    if (!response.ok) {
+      throw new Error(`Error del servidor (HTTP ${response.status})`)
+    }
+
+    const text = await response.text()
+
+    try {
+      const result = JSON.parse(text)
+      return result
+    } catch (parseError) {
+      console.error('Respuesta no JSON al consultar historial:', text.substring(0, 200))
+      throw new Error('El servidor devolvió una respuesta inválida.')
+    }
+  } catch (error) {
+    console.error('Error al obtener historial docente:', error)
+    return {
+      success: false,
+      message: error.message || 'Error al conectar con la base de datos.',
+      data: [],
+    }
+  }
+}
+
+// ══════════════════════════════════════════
 // REGISTRAR SESIÓN (POST)
 // ══════════════════════════════════════════
 
