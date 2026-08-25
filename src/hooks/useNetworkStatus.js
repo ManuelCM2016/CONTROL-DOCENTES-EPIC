@@ -1,10 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getOfflineQueueCount, syncOfflineQueue } from '../utils/offlineManager'
 
-/**
- * Custom hook para monitorear el estado de red y la cola de sincronización offline.
- * Sincroniza automáticamente en segundo plano cuando la conexión a internet regresa.
- */
+// Custom hook para monitorear el estado de red y la cola de sincronización offline.
+// Sincroniza automáticamente en segundo plano cuando la conexión a internet regresa.
 export const useNetworkStatus = (onSyncComplete) => {
   const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true))
   const [pendingOfflineCount, setPendingOfflineCount] = useState(() => getOfflineQueueCount())

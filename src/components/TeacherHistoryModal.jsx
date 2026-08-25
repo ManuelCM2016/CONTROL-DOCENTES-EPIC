@@ -3,14 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   History, X, Search, Filter, Calendar, MapPin,
   BookOpen, Users, Clock, CheckCircle2, AlertCircle,
-  Copy, Trash2, Download, RefreshCw, FileText,
+  Copy, Download, RefreshCw, FileText,
   Layers, ShieldCheck, Sparkles, ChevronRight, Loader2,
   CloudDownload
 } from 'lucide-react'
 import {
   getTeacherHistory,
-  deleteSessionFromHistory,
-  clearTeacherHistory,
   mergeHistoryFromCloud
 } from '../utils/historyManager'
 import { obtenerHistorialDocente } from '../services/api'
@@ -91,25 +89,6 @@ const TeacherHistoryModal = ({
     const totalAlumnos = historyList.reduce((acc, s) => acc + (parseInt(s.numEstudiantes, 10) || 0), 0)
     return { total, regulares, recuperaciones, totalAlumnos }
   }, [historyList])
-
-  // Eliminar un ítem individual
-  const handleDeleteItem = (id, e) => {
-    e.stopPropagation()
-    if (window.confirm('¿Está seguro de eliminar este registro de su historial local?')) {
-      deleteSessionFromHistory(docente?.dni, id)
-      setHistoryList(getTeacherHistory(docente?.dni))
-      showToast?.('info', 'Registro eliminado del historial local')
-    }
-  }
-
-  // Limpiar todo el historial
-  const handleClearAll = () => {
-    if (window.confirm('¿Desea borrar todo su historial de clases en este dispositivo?')) {
-      clearTeacherHistory(docente?.dni)
-      setHistoryList([])
-      showToast?.('info', 'Historial limpiado correctamente')
-    }
-  }
 
   // Exportar a CSV
   const handleExportCSV = () => {
@@ -438,15 +417,6 @@ const TeacherHistoryModal = ({
                             <span>Continuar este tema</span>
                           </button>
                         )}
-
-                        <button
-                          type="button"
-                          onClick={(e) => handleDeleteItem(ses.id, e)}
-                          title="Eliminar de historial"
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-500/10 transition-all cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
                       </div>
                     </div>
                   </motion.div>
@@ -456,22 +426,11 @@ const TeacherHistoryModal = ({
           </div>
 
           {/* Modal Bottom Bar */}
-          <div className="p-4 sm:p-5 border-t border-slate-200/50 dark:border-white/10 flex flex-wrap items-center justify-between gap-3 bg-black/10 dark:bg-white/5">
-            {historyList.length > 0 && (
-              <button
-                type="button"
-                onClick={handleClearAll}
-                className="text-xs font-semibold text-red-500/80 hover:text-red-500 transition-colors flex items-center gap-1 cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Borrar todo el historial local</span>
-              </button>
-            )}
-
+          <div className="p-4 sm:p-5 border-t border-slate-200/50 dark:border-white/10 flex flex-wrap items-center justify-end gap-3 bg-black/10 dark:bg-white/5">
             <button
               type="button"
               onClick={onClose}
-              className={`ml-auto px-5 py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${isDarkMode
+              className={`px-5 py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${isDarkMode
                   ? 'bg-white/10 border-white/15 text-white hover:bg-white/20'
                   : 'bg-slate-200 border-slate-300 text-slate-800 hover:bg-slate-300'
                 }`}

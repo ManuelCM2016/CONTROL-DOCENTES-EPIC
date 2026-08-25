@@ -3,10 +3,13 @@ import { AnimatePresence } from 'framer-motion'
 import LoginView from './components/LoginView'
 import LoadingView from './components/LoadingView'
 import FormView from './components/FormView'
+import AdminLoginView from './components/admin/AdminLoginView'
+import AdminDashboard from './components/admin/AdminDashboard'
 import Toast from './components/Toast'
 import useSession from './hooks/useSession'
 import { buscarDocente } from './services/api'
 import { mergeHistoryFromCloud } from './utils/historyManager'
+import { ADMIN_LOGIN_CODE } from './config/adminConfig'
 
 function App() {
   const {
@@ -19,9 +22,10 @@ function App() {
     loadFormData,
   } = useSession()
 
-  // Vista: 'login' | 'loading' | 'form'
+  // Vista: 'login' | 'loading' | 'form' | 'admin-login' | 'admin-dashboard'
   const [currentView, setCurrentView] = useState(() => 'login')
   const [toast, setToast] = useState(null)
+  const [adminUser, setAdminUser] = useState(null)
   
   // Tema visual (oscuro por defecto, con persistencia opcional)
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -44,6 +48,12 @@ function App() {
     : 'login'
 
   const handleLogin = useCallback(async (identifier) => {
+    // Detectar código de acceso admin por DNI
+    if (identifier.trim().toUpperCase() === ADMIN_LOGIN_CODE.toUpperCase()) {
+      setCurrentView('admin-login')
+      return
+    }
+
     setCurrentView('loading')
 
     try {
@@ -86,6 +96,33 @@ function App() {
     })
   }, [endSession])
 
+  // ── Admin handlers ──
+  const handleAdminAccess = useCallback(() => {
+    setCurrentView('admin-login')
+  }, [])
+
+  const handleAdminLogin = useCallback((user) => {
+    setAdminUser(user)
+    setCurrentView('admin-dashboard')
+    setToast({
+      type: 'success',
+      message: `Bienvenida, ${user.nombre}`,
+    })
+  }, [])
+
+  const handleAdminLogout = useCallback(() => {
+    setAdminUser(null)
+    setCurrentView('login')
+    setToast({
+      type: 'info',
+      message: 'Sesión de administración cerrada',
+    })
+  }, [])
+
+  const handleAdminBack = useCallback(() => {
+    setCurrentView('login')
+  }, [])
+
   const showToast = useCallback((type, message) => {
     setToast({ type, message })
   }, [])
@@ -105,6 +142,7 @@ function App() {
           <LoginView
             key="login-view"
             onLogin={handleLogin}
+            onAdminAccess={handleAdminAccess}
             isDarkMode={isDarkMode}
             toggleTheme={toggleTheme}
           />
@@ -120,6 +158,23 @@ function App() {
             showToast={showToast}
             saveFormData={saveFormData}
             loadFormData={loadFormData}
+            isDarkMode={isDarkMode}
+            toggleTheme={toggleTheme}
+          />
+        )}
+        {resolvedView === 'admin-login' && (
+          <AdminLoginView
+            key="admin-login-view"
+            onAdminLogin={handleAdminLogin}
+            onBack={handleAdminBack}
+            isDarkMode={isDarkMode}
+          />
+        )}
+        {resolvedView === 'admin-dashboard' && adminUser && (
+          <AdminDashboard
+            key="admin-dashboard-view"
+            adminUser={adminUser}
+            onLogout={handleAdminLogout}
             isDarkMode={isDarkMode}
             toggleTheme={toggleTheme}
           />
@@ -142,3 +197,4 @@ function App() {
 }
 
 export default App
+

@@ -15,6 +15,7 @@ import SuccessModal from './SuccessModal'
 import OnboardingTour from './OnboardingTour'
 import TeacherHistoryModal from './TeacherHistoryModal'
 import { registrarSesion } from '../services/api'
+import { registrarInicioClase, registrarCierreClase } from '../services/adminApi'
 import { playAlertSound } from '../utils/alertSound'
 import {
   calcularSemanaYUnidad,
@@ -37,7 +38,7 @@ const AULAS_LABORATORIOS_OPTIONS = [
   'BLOQUE R-3016',
   'BLOQUE R-317',
   'BLOQUE R-408',
-  'R-415',
+  'BLOQUE R-415',
   'BLOQUE R-416',
   'BLOQUE R-417',
   'SUELOS S-206',
@@ -177,7 +178,12 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
   // ── Estado del formulario ──
   const [formData, setFormData] = useState(() => {
     const saved = loadFormData()
+    const hoy = new Date().toISOString().split('T')[0]
     if (saved && saved.horaInicio) {
+      // Si la sesión guardada es de un día anterior y ya estaba finalizada, empezar con formulario limpio
+      if (saved.fecha && saved.fecha !== hoy && saved.horaFinalizacion) {
+        return getAutomatedInitialFormData()
+      }
       return { ...getAutomatedInitialFormData(), ...saved }
     }
     return getAutomatedInitialFormData()
@@ -186,15 +192,25 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
   // Derivar sessionState
   const [sessionState, setSessionState] = useState(() => {
     const saved = loadFormData()
-    if (saved?.horaFinalizacion) return 'finished'
-    if (saved?.horaInicio) return 'started'
+    const hoy = new Date().toISOString().split('T')[0]
+    if (saved?.horaFinalizacion && saved?.fecha === hoy) return 'finished'
+    if (saved?.horaInicio && saved?.fecha === hoy) return 'started'
     return 'idle'
   })
 
   // ── Al cambiar docente o montar: asegurar aislamiento de datos ──
   useEffect(() => {
     const saved = loadFormData()
+    const hoy = new Date().toISOString().split('T')[0]
     if (saved && saved.horaInicio) {
+      // Si la sesión guardada era de un día anterior y ya estaba terminada, iniciar limpio
+      if (saved.fecha && saved.fecha !== hoy && saved.horaFinalizacion) {
+        saveFormData(null)
+        setFormData(getAutomatedInitialFormData())
+        setSessionState('idle')
+        setIsSent(false)
+        return
+      }
       setFormData({ ...getAutomatedInitialFormData(), ...saved })
       if (saved.horaFinalizacion) {
         setSessionState('finished')
@@ -206,7 +222,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       setSessionState('idle')
       setIsSent(false)
     }
-  }, [docente.dni, getAutomatedInitialFormData, loadFormData])
+  }, [docente.dni, getAutomatedInitialFormData, loadFormData, saveFormData])
 
   // ── Auto-guardar formulario en localStorage por docente ──
   const updateField = (field, value) => {
@@ -319,10 +335,33 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       second: '2-digit',
       hour12: false,
     })
+    const today = new Date().toISOString().split('T')[0]
 
     setFormData((prev) => {
       const updated = { ...prev, horaInicio: now }
       saveFormData(updated)
+
+      // POST silencioso al backend: marcar sesión como ACTIVA en Sheets
+      if (docente?.dni) {
+        registrarInicioClase({
+          dni: docente.dni,
+          docente: docente.nombre,
+          facultad: docente.facultad || '',
+          escuela: docente.escuela || '',
+          carrera: docente.carrera || '',
+          numero: updated.numero || '',
+          aulaLab: updated.aulaLab || '',
+          fecha: updated.fecha || today,
+          asignatura: updated.asignatura || '',
+          seccion: updated.seccion || '',
+          unidad: updated.unidad || '',
+          semanaAcademica: updated.semanaAcademica || '',
+          horaInicio: now,
+          tipo_sesion: updated.tipoSesion || 'Clase Regular',
+          fecha_recuperar: updated.fechaRecuperar || '',
+        }).catch((err) => console.warn('Error al registrar inicio (no crítico):', err))
+      }
+
       return updated
     })
     setSessionState('started')
@@ -445,9 +484,11 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       return
     }
 
-    // CASO B: Enviar a Google Apps Script
+    // CASO B: Enviar a Google Apps Script (usando action=cierre para 2 fases)
     try {
-      const result = await registrarSesion(payload)
+      // Intentar primero con cierre (actualiza fila ACTIVO si existe)
+      // Si falla, usa el endpoint legacy como fallback
+      const result = await registrarCierreClase(payload)
 
       if (result.success) {
         saveSessionToHistory(docente.dni, payload, 'synced')
@@ -576,11 +617,10 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                       onClick={triggerSync}
                       disabled={isSyncing}
                       title="Hay sesiones guardadas sin conexión. Clic para sincronizar ahora."
-                      className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
-                        isDarkMode
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${isDarkMode
                           ? 'bg-amber-950/60 border-amber-500/40 text-amber-300 hover:bg-amber-900/60'
                           : 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
-                      }`}
+                        }`}
                     >
                       {isSyncing ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
@@ -592,9 +632,8 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                   ) : (
                     <span
                       title="Conexión a internet activa"
-                      className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold border ${
-                        isDarkMode ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                      }`}
+                      className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold border ${isDarkMode ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        }`}
                     >
                       <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                       <span>En línea</span>
@@ -603,9 +642,8 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                 ) : (
                   <span
                     title="Sin conexión a internet. Los registros se guardarán localmente."
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold border ${
-                      isDarkMode ? 'bg-rose-950/60 border-rose-500/40 text-rose-300' : 'bg-rose-50 border-rose-300 text-rose-800'
-                    }`}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold border ${isDarkMode ? 'bg-rose-950/60 border-rose-500/40 text-rose-300' : 'bg-rose-50 border-rose-300 text-rose-800'
+                      }`}
                   >
                     <WifiOff className="w-3.5 h-3.5 text-rose-500" />
                     <span>{pendingOfflineCount > 0 ? `Offline (${pendingOfflineCount})` : 'Offline'}</span>
@@ -618,11 +656,10 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                 type="button"
                 onClick={() => setShowHistoryModal(true)}
                 title="Ver historial de clases anteriores dictadas"
-                className={`p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
-                  isDarkMode
+                className={`p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${isDarkMode
                     ? 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white'
                     : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 shadow-xs'
-                }`}
+                  }`}
               >
                 <History className="w-4 h-4 text-maroon-500" />
                 <span className="hidden md:inline">Mis Clases</span>
@@ -632,11 +669,10 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
               <button
                 type="button"
                 onClick={handleOpenTour}
-                className={`p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
-                  isDarkMode
+                className={`p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${isDarkMode
                     ? 'bg-maroon-800/30 border-maroon-700/40 text-maroon-300 hover:bg-maroon-800/50'
                     : 'bg-red-900/10 border-red-900/20 text-red-900 hover:bg-red-900/15'
-                }`}
+                  }`}
                 title="Ver tutorial guiado del sistema"
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
@@ -722,15 +758,14 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
 
           {/* ─── PASO 1: REGISTRAR INICIO DE CLASE INMEDIATO (ARRIBA) ─── */}
           <motion.section variants={itemVariants} id="tour-step-4">
-            <div className={`rounded-3xl border-2 p-5 sm:p-6 transition-all duration-500 ${
-              sessionState === 'idle'
+            <div className={`rounded-3xl border-2 p-5 sm:p-6 transition-all duration-500 ${sessionState === 'idle'
                 ? isDarkMode
                   ? 'bg-gradient-to-br from-emerald-950/40 via-slate-900/90 to-slate-950 border-emerald-500/50 shadow-2xl shadow-emerald-950/50'
                   : 'bg-gradient-to-br from-emerald-50 via-white to-slate-50 border-emerald-400 shadow-xl shadow-emerald-100'
                 : isDarkMode
                   ? 'bg-slate-900/60 border-slate-800'
                   : 'bg-slate-50 border-slate-200'
-            }`}>
+              }`}>
               <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <div className="flex items-center gap-2">
                   <div className={`w-2.5 h-6 rounded-full ${sessionState === 'idle' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`} />
@@ -816,11 +851,10 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                   </motion.button>
                 </div>
               ) : sessionState === 'started' ? (
-                <div className={`p-4 sm:p-5 rounded-2xl border-2 flex flex-col sm:flex-row items-center justify-between gap-3 ${
-                  isDarkMode
+                <div className={`p-4 sm:p-5 rounded-2xl border-2 flex flex-col sm:flex-row items-center justify-between gap-3 ${isDarkMode
                     ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-200'
                     : 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                }`}>
+                  }`}>
                   <div className="flex items-center gap-3">
                     <div className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
                     <div>
@@ -832,18 +866,16 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                       </p>
                     </div>
                   </div>
-                  <span className={`text-xs px-3 py-1.5 rounded-full font-bold border ${
-                    isDarkMode ? 'bg-emerald-900/40 border-emerald-500/30 text-emerald-300' : 'bg-white border-emerald-200 text-emerald-800'
-                  }`}>
+                  <span className={`text-xs px-3 py-1.5 rounded-full font-bold border ${isDarkMode ? 'bg-emerald-900/40 border-emerald-500/30 text-emerald-300' : 'bg-white border-emerald-200 text-emerald-800'
+                    }`}>
                     📝 Complete los datos abajo durante su sesión
                   </span>
                 </div>
               ) : (
-                <div className={`p-4 sm:p-5 rounded-3xl border-2 flex flex-col sm:flex-row items-center justify-between gap-3 ${
-                  isDarkMode
+                <div className={`p-4 sm:p-5 rounded-3xl border-2 flex flex-col sm:flex-row items-center justify-between gap-3 ${isDarkMode
                     ? 'bg-slate-900/90 border-slate-700 text-slate-200'
                     : 'bg-slate-100 border-slate-300 text-slate-800'
-                }`}>
+                  }`}>
                   <div className="flex items-center gap-3">
                     <CheckCircle2 className="w-5 h-5 text-emerald-500" />
                     <div>
@@ -914,11 +946,10 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
 
               {/* Aviso pequeño estático (sin parpadeo) al iniciar la clase */}
               {sessionState === 'started' && (
-                <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                  isDarkMode
+                <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${isDarkMode
                     ? 'bg-white/5 border-white/10 text-slate-300'
                     : 'bg-white border-slate-300 text-slate-700 shadow-xs'
-                }`}>
+                  }`}>
                   <FileText className="w-3.5 h-3.5 text-maroon-600 dark:text-maroon-400" />
                   <span>Complete estos campos durante su clase</span>
                 </div>
@@ -1013,15 +1044,14 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                         key={tipo.value}
                         type="button"
                         onClick={() => updateField('tipoSesion', tipo.value)}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 text-xs font-bold transition-all duration-300 cursor-pointer ${
-                          formData.tipoSesion === tipo.value
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 text-xs font-bold transition-all duration-300 cursor-pointer ${formData.tipoSesion === tipo.value
                             ? tipo.value === 'Clase Regular'
                               ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-500/20 scale-[1.02]'
                               : 'bg-amber-600 text-white border-amber-500 shadow-lg shadow-amber-500/20 scale-[1.02]'
                             : isDarkMode
                               ? 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-700/80 hover:border-slate-600'
                               : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50 hover:border-slate-400'
-                        }`}
+                          }`}
                       >
                         {tipo.label}
                       </button>
@@ -1038,11 +1068,10 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                         transition={{ duration: 0.3 }}
                         className="overflow-hidden"
                       >
-                        <div className={`mt-2 p-3.5 rounded-xl border-2 border-dashed ${
-                          isDarkMode
+                        <div className={`mt-2 p-3.5 rounded-xl border-2 border-dashed ${isDarkMode
                             ? 'bg-amber-900/20 border-amber-600/40'
                             : 'bg-amber-50 border-amber-300'
-                        }`}>
+                          }`}>
                           <label className={`label-institutional flex items-center gap-1.5 !mb-2 ${isDarkMode ? '!text-amber-300' : '!text-amber-800'}`} htmlFor="campo-fecha-recuperar">
                             <CalendarClock className="w-3.5 h-3.5" /> Fecha de la clase a recuperar
                           </label>
@@ -1053,9 +1082,8 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                             onChange={(e) => updateField('fechaRecuperar', e.target.value)}
                             className={isDarkMode ? 'input-institutional-dark' : 'input-institutional-light'}
                           />
-                          <p className={`text-[10px] mt-1.5 font-medium ${
-                            isDarkMode ? 'text-amber-400/80' : 'text-amber-700'
-                          }`}>
+                          <p className={`text-[10px] mt-1.5 font-medium ${isDarkMode ? 'text-amber-400/80' : 'text-amber-700'
+                            }`}>
                             📌 Seleccione la fecha original de la clase que se está recuperando. La Unidad y Semana se ajustarán automáticamente.
                           </p>
                         </div>
@@ -1070,15 +1098,14 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                     <div>
                       <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-unidad">
                         <span><Layers className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> Unidad Académica</span>
-                        <span className={`text-[10px] font-semibold flex items-center gap-1 ${
-                          formData.tipoSesion === 'Clase Regular'
+                        <span className={`text-[10px] font-semibold flex items-center gap-1 ${formData.tipoSesion === 'Clase Regular'
                             ? isDarkMode ? 'text-emerald-400' : 'text-emerald-600'
                             : isDarkMode ? 'text-amber-400' : 'text-amber-600'
-                        }`}>
+                          }`}>
                           {formData.tipoSesion === 'Clase Regular' ? (
                             <><Lock className="w-3 h-3" /> Autocalculado</>
                           ) : (
-                            <>🔓 Editable</>  
+                            <>🔓 Editable</>
                           )}
                         </span>
                       </label>
@@ -1087,9 +1114,8 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                         value={formData.unidad}
                         onChange={(e) => updateField('unidad', e.target.value)}
                         disabled={formData.tipoSesion === 'Clase Regular'}
-                        className={`${isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'} ${
-                          formData.tipoSesion === 'Clase Regular' ? 'opacity-70 cursor-not-allowed' : ''
-                        }`}
+                        className={`${isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'} ${formData.tipoSesion === 'Clase Regular' ? 'opacity-70 cursor-not-allowed' : ''
+                          }`}
                       >
                         <option value="">Seleccione Unidad</option>
                         <option value="I">Unidad I</option>
@@ -1101,15 +1127,14 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                     <div>
                       <label className={`label-institutional flex items-center justify-between ${isDarkMode ? '!text-slate-200' : '!text-slate-800'}`} htmlFor="campo-semana">
                         <span><Calendar className="w-3.5 h-3.5 inline mr-1 text-maroon-500" /> N° de Semana Académica</span>
-                        <span className={`text-[10px] font-bold flex items-center gap-1 ${
-                          formData.tipoSesion === 'Clase Regular'
+                        <span className={`text-[10px] font-bold flex items-center gap-1 ${formData.tipoSesion === 'Clase Regular'
                             ? isDarkMode ? 'text-emerald-400' : 'text-emerald-600'
                             : isDarkMode ? 'text-amber-400' : 'text-amber-600'
-                        }`}>
+                          }`}>
                           {formData.tipoSesion === 'Clase Regular' ? (
                             <><Lock className="w-3 h-3" /> Autocalculado</>
                           ) : (
-                            <>🔓 Editable</>  
+                            <>🔓 Editable</>
                           )}
                         </span>
                       </label>
@@ -1118,9 +1143,8 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                         value={formData.semanaAcademica}
                         onChange={(e) => updateField('semanaAcademica', e.target.value)}
                         disabled={formData.tipoSesion === 'Clase Regular'}
-                        className={`${isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'} ${
-                          formData.tipoSesion === 'Clase Regular' ? 'opacity-70 cursor-not-allowed' : ''
-                        }`}
+                        className={`${isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'} ${formData.tipoSesion === 'Clase Regular' ? 'opacity-70 cursor-not-allowed' : ''
+                          }`}
                       >
                         <option value="">Seleccione Semana</option>
                         {Array.from({ length: SEMESTRE_CONFIG.totalSemanas }, (_, i) => {
@@ -1457,11 +1481,10 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                           <button
                             type="button"
                             onClick={handleNuevoRegistro}
-                            className={`flex-1 py-3.5 px-5 rounded-2xl font-bold text-sm border-2 flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                              isDarkMode
+                            className={`flex-1 py-3.5 px-5 rounded-2xl font-bold text-sm border-2 flex items-center justify-center gap-2 transition-all cursor-pointer ${isDarkMode
                                 ? 'border-emerald-500/40 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50'
                                 : 'border-emerald-400 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-                            }`}
+                              }`}
                           >
                             <PlusCircle className="w-4 h-4 text-emerald-500" />
                             <span>Registrar Siguiente Clase</span>
@@ -1469,11 +1492,10 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                           <button
                             type="button"
                             onClick={onLogout}
-                            className={`py-3.5 px-5 rounded-2xl font-bold text-sm border-2 flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                              isDarkMode
+                            className={`py-3.5 px-5 rounded-2xl font-bold text-sm border-2 flex items-center justify-center gap-2 transition-all cursor-pointer ${isDarkMode
                                 ? 'border-red-500/30 bg-red-950/40 text-red-300 hover:bg-red-900/50'
                                 : 'border-red-300 bg-red-50 text-red-800 hover:bg-red-100'
-                            }`}
+                              }`}
                           >
                             <LogOut className="w-4 h-4 text-red-400" />
                             <span>Finalizar y Salir</span>
@@ -1551,22 +1573,22 @@ const ReadOnlyCard = ({ icon, label, value, isDarkMode }) => (
     ? 'bg-slate-900/80 border-white/10 hover:border-maroon-500/40 shadow-lg shadow-black/30'
     : 'bg-slate-50 border-slate-200 hover:border-red-800/40 shadow-md shadow-slate-200/60 hover:shadow-lg'
     }`}>
-  <div className="flex items-start gap-3">
-    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors duration-200 ${isDarkMode ? 'bg-maroon-700/20 text-maroon-300 border border-maroon-700/30' : 'bg-red-900/10 border border-red-900/15 text-red-900 group-hover:bg-red-900/15'
-      }`}>
-      {icon}
-    </div>
-    <div className="min-w-0 flex-1">
-      <p className={`text-[10px] font-extrabold uppercase tracking-wider mb-0.5 flex items-center gap-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
-        {label}
-        <Lock className="w-2.5 h-2.5 opacity-60" />
-      </p>
-      <p className={`text-sm font-bold truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-        {value || '—'}
-      </p>
+    <div className="flex items-start gap-3">
+      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors duration-200 ${isDarkMode ? 'bg-maroon-700/20 text-maroon-300 border border-maroon-700/30' : 'bg-red-900/10 border border-red-900/15 text-red-900 group-hover:bg-red-900/15'
+        }`}>
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className={`text-[10px] font-extrabold uppercase tracking-wider mb-0.5 flex items-center gap-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+          {label}
+          <Lock className="w-2.5 h-2.5 opacity-60" />
+        </p>
+        <p className={`text-sm font-bold truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+          {value || '—'}
+        </p>
+      </div>
     </div>
   </div>
-</div>
 )
 
 const TimeDisplay = ({ label, value, active, color, isDarkMode }) => {

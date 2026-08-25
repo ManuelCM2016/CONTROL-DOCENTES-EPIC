@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { UserCircle, ArrowRight, Shield, Building2, Sun, Moon } from 'lucide-react'
+import { UserCircle, ArrowRight, Shield, Sun, Moon } from 'lucide-react'
 
-const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
+const LoginView = ({ onLogin, onAdminAccess, isDarkMode, toggleTheme }) => {
   const [dni, setDni] = useState('')
   const [isFocused, setIsFocused] = useState(false)
   const [error, setError] = useState('')
@@ -34,7 +34,7 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, scale: 0.98 }}
       transition={{ duration: 0.4 }}
-      className={`min-h-screen flex items-center justify-center relative overflow-hidden transition-colors duration-500`}
+      className="min-h-screen flex items-center justify-center relative overflow-hidden transition-colors duration-500"
       style={{
         background: isDarkMode
           ? 'linear-gradient(135deg, #1a0a0a 0%, #2d1515 25%, #3B0D0D 50%, #2d1515 75%, #1a0a0a 100%)'
@@ -60,6 +60,7 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
           {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </button>
       </div>
+
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
         <motion.div
@@ -129,11 +130,24 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
               transition={{ delay: 0.4, duration: 0.5 }}
               className="text-center mb-8"
             >
-              {/* Logo */}
-              <div className={`mx-auto w-24 h-24 rounded-full flex items-center justify-center mb-5 shadow-lg ring-4 transition-colors duration-500 ${isDarkMode
-                  ? 'bg-gradient-to-br from-maroon-800 to-maroon-950 shadow-maroon-900/30 ring-maroon-700/20'
-                  : 'bg-slate-50 shadow-slate-300/50 ring-slate-200'
-                }`}>
+              {/* Logo — 3 clics rápidos abre el panel admin (acceso oculto) */}
+              <div
+                className={`mx-auto w-24 h-24 rounded-full flex items-center justify-center mb-5 shadow-lg ring-4 transition-colors duration-500 cursor-default select-none ${isDarkMode
+                    ? 'bg-gradient-to-br from-maroon-800 to-maroon-950 shadow-maroon-900/30 ring-maroon-700/20'
+                    : 'bg-slate-50 shadow-slate-300/50 ring-slate-200'
+                  }`}
+                onClick={() => {
+                  if (!window._logoClickCount) window._logoClickCount = 0
+                  if (!window._logoClickTimer) window._logoClickTimer = null
+                  window._logoClickCount++
+                  clearTimeout(window._logoClickTimer)
+                  window._logoClickTimer = setTimeout(() => { window._logoClickCount = 0 }, 1000)
+                  if (window._logoClickCount >= 3) {
+                    window._logoClickCount = 0
+                    if (onAdminAccess) onAdminAccess()
+                  }
+                }}
+              >
                 <img src="/logo.png" alt="Logo UPT" className="w-16 h-16 object-contain" />
               </div>
 
@@ -162,7 +176,7 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
                 <label className={`block text-xs font-bold tracking-wider uppercase mb-2.5 ml-1 transition-colors duration-500 ${isDarkMode ? 'text-white/60' : 'text-slate-700'}`}>
                   DNI del Docente
                 </label>
-                <div className={`relative group`}>
+                <div className="relative group">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                     <UserCircle
                       className={`w-5 h-5 transition-colors duration-300 ${isFocused
@@ -209,17 +223,16 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
                 </div>
 
                 {/* Error message */}
-                <AnimatePresenceWrapper show={!!error}>
+                {error && (
                   <motion.p
                     initial={{ opacity: 0, y: -5 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -5 }}
                     className={`text-xs mt-2 ml-1 flex items-center gap-1.5 font-semibold ${isDarkMode ? 'text-red-400/90' : 'text-red-600'}`}
                   >
                     <Shield className="w-3.5 h-3.5" />
                     {error}
                   </motion.p>
-                </AnimatePresenceWrapper>
+                )}
               </div>
 
               {/* Submit Button */}
@@ -230,7 +243,7 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
                 className={`
                   w-full py-4 rounded-xl font-bold text-base tracking-wide
                   flex items-center justify-center gap-3
-                  transition-all duration-300 ease-out
+                  transition-all duration-300 ease-out cursor-pointer
                   ${dni.length >= 4
                     ? 'bg-gradient-to-r from-red-900 to-red-800 text-white shadow-lg shadow-red-900/30 hover:shadow-xl hover:shadow-red-900/40 hover:from-red-800 hover:to-red-700'
                     : isDarkMode
@@ -242,8 +255,7 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
                 id="btn-ingresar"
               >
                 <span>Ingresar al Sistema</span>
-                <ArrowRight className={`w-5 h-5 transition-transform duration-300 ${dni.length >= 4 ? 'group-hover:translate-x-1' : ''
-                  }`} />
+                <ArrowRight className="w-5 h-5" />
               </motion.button>
             </motion.form>
 
@@ -270,12 +282,6 @@ const LoginView = ({ onLogin, isDarkMode, toggleTheme }) => {
       </motion.div>
     </motion.div>
   )
-}
-
-// Simple wrapper to conditionally render with animation
-const AnimatePresenceWrapper = ({ show, children }) => {
-  if (!show) return null
-  return children
 }
 
 export default LoginView
