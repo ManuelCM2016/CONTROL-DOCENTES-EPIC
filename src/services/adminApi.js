@@ -124,3 +124,60 @@ export const obtenerListaDocentes = async () => {
     return { success: false, message: error.message }
   }
 }
+
+// ──────────────────────────────────────────────────
+// EDITAR SESIÓN COMPLETA (POST action=editar_sesion)
+// Permite a la Directora modificar cualquier dato de una sesión
+// ──────────────────────────────────────────────────
+export const editarSesionAdmin = async (payload) => {
+  if (!GOOGLE_SCRIPT_URL) return { success: true, message: 'Mock: sesión editada.' }
+  try {
+    const response = await fetchGAS(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, action: 'editar_sesion' }),
+    })
+    const text = await response.text()
+    return JSON.parse(text)
+  } catch (error) {
+    console.warn('Error al editar sesión:', error)
+    return { success: false, message: error.message }
+  }
+}
+
+// ──────────────────────────────────────────────────
+// EDITAR O AGREGAR DOCENTE (POST action=editar_docente)
+// Permite a la Directora editar los datos y cursos de un docente
+// ──────────────────────────────────────────────────
+export const editarDocenteAdmin = async (payload) => {
+  if (!GOOGLE_SCRIPT_URL) return { success: true, message: 'Mock: docente editado.' }
+  try {
+    const response = await fetchGAS(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, action: 'editar_docente' }),
+    })
+    const text = await response.text()
+    return JSON.parse(text)
+  } catch (error) {
+    console.warn('Error al editar docente:', error)
+    return { success: false, message: error.message }
+  }
+}
+
+// ──────────────────────────────────────────────────
+// ACTUALIZAR VALIDACIÓN (POST action=validar)
+// Permite a la Directora cambiar manualmente de PENDIENTE a VÁLIDO
+// ──────────────────────────────────────────────────
+export const actualizarValidacionSesion = async (payload) => {
+  if (!GOOGLE_SCRIPT_URL) return { success: true, message: 'Mock: validación actualizada.' }
+  try {
+    const response = await fetchGAS(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, action: 'validar' }),
+    })
+    const text = await response.text()
+    return JSON.parse(text)
+  } catch (error) {
+    console.warn('Error al actualizar validación:', error)
+    return { success: false, message: error.message }
+  }
+}

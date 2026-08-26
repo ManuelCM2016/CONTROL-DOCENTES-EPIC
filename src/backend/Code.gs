@@ -275,6 +275,206 @@ function doPost(e) {
     const sheet = getSheet(HOJA_DATOS);
 
     // ══════════════════════════════════════════
+    // ACCIÓN: ACTUALIZAR VALIDACIÓN (DIRECTORA)
+    // ══════════════════════════════════════════
+    if (actionPost === 'validar' || actionPost === 'actualizar_validacion') {
+      const targetDni = String(payload.dni || '').trim().toUpperCase();
+      const targetDniNorm = normalizeDni(targetDni);
+      const targetFecha = String(payload.fecha || '').trim();
+      const targetHoraInicio = String(payload.horaInicio || '').trim();
+      const nuevaValidacion = String(payload.validacion || 'VÁLIDO').trim().toUpperCase();
+      const rowId = payload.rowId;
+
+      let filaEncontrada = -1;
+      const dataExistente = sheet.getDataRange().getValues();
+
+      if (rowId && String(rowId).startsWith('row_')) {
+        const idx = parseInt(String(rowId).replace('row_', ''), 10);
+        if (!isNaN(idx) && idx >= 1 && idx < dataExistente.length) {
+          filaEncontrada = idx + 1; // 1-based row index in Sheets
+        }
+      }
+
+      if (filaEncontrada === -1) {
+        for (let i = dataExistente.length - 1; i >= 1; i--) {
+          const row = dataExistente[i];
+          const rowDni = String(row[1]).trim().toUpperCase();
+          const rowDniNorm = normalizeDni(rowDni);
+          let rowFecha = row[8] instanceof Date ? Utilities.formatDate(row[8], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(row[8] || '').trim();
+          let rowHoraInicio = row[15] instanceof Date ? Utilities.formatDate(row[15], Session.getScriptTimeZone(), 'HH:mm:ss') : String(row[15] || '').trim();
+
+          if (
+            (rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm)) &&
+            rowFecha === targetFecha &&
+            rowHoraInicio === targetHoraInicio
+          ) {
+            filaEncontrada = i + 1;
+            break;
+          }
+        }
+      }
+
+      if (filaEncontrada !== -1) {
+        sheet.getRange(filaEncontrada, 19).setValue(nuevaValidacion); // Columna S (19) es VALIDACIÓN
+        return createJsonResponse({
+          success: true,
+          message: 'Validación actualizada a: ' + nuevaValidacion,
+          data: { fila: filaEncontrada, validacion: nuevaValidacion }
+        });
+      } else {
+        return createJsonResponse({
+          success: false,
+          message: 'No se encontró el registro para actualizar la validación.'
+        });
+      }
+    }
+
+    // ══════════════════════════════════════════
+    // ACCIÓN: EDITAR SESIÓN COMPLETA (DIRECTORA)
+    // ══════════════════════════════════════════
+    if (actionPost === 'editar_sesion' || actionPost === 'actualizar_sesion') {
+      const targetDni = String(payload.dniOriginal || payload.dni || '').trim().toUpperCase();
+      const targetDniNorm = normalizeDni(targetDni);
+      const targetFecha = String(payload.fechaOriginal || payload.fecha || '').trim();
+      const targetHoraInicio = String(payload.horaInicioOriginal || payload.horaInicio || '').trim();
+      const rowId = payload.rowId;
+
+      let filaEncontrada = -1;
+      const dataExistente = sheet.getDataRange().getValues();
+
+      if (rowId && String(rowId).startsWith('row_')) {
+        const idx = parseInt(String(rowId).replace('row_', ''), 10);
+        if (!isNaN(idx) && idx >= 1 && idx < dataExistente.length) {
+          filaEncontrada = idx + 1;
+        }
+      }
+
+      if (filaEncontrada === -1) {
+        for (let i = dataExistente.length - 1; i >= 1; i--) {
+          const row = dataExistente[i];
+          const rowDni = String(row[1]).trim().toUpperCase();
+          const rowDniNorm = normalizeDni(rowDni);
+          let rowFecha = row[8] instanceof Date ? Utilities.formatDate(row[8], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(row[8] || '').trim();
+          let rowHoraInicio = row[15] instanceof Date ? Utilities.formatDate(row[15], Session.getScriptTimeZone(), 'HH:mm:ss') : String(row[15] || '').trim();
+
+          if (
+            (rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm)) &&
+            rowFecha === targetFecha &&
+            rowHoraInicio === targetHoraInicio
+          ) {
+            filaEncontrada = i + 1;
+            break;
+          }
+        }
+      }
+
+      if (filaEncontrada !== -1) {
+        const recursosText = Array.isArray(payload.recursos)
+          ? payload.recursos.join(', ')
+          : String(payload.recursos || '');
+
+        const timestamp = new Date();
+        const timestampStr = Utilities.formatDate(timestamp, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
+
+        const updatedRow = [
+          timestampStr,                                    // A: TIMESTAMP
+          payload.dni || '',                              // B: DNI
+          payload.docente || '',                          // C: DOCENTE
+          payload.facultad || '',                         // D: FACULTAD
+          payload.escuela || '',                          // E: ESCUELA
+          payload.carrera || '',                          // F: CARRERA
+          payload.numero || '',                           // G: N°
+          payload.aulaLab || payload.aula || '',          // H: AULA/LAB
+          payload.fecha || '',                            // I: FECHA
+          payload.asignatura || '',                       // J: ASIGNATURA
+          payload.seccion || '',                          // K: SECCIÓN
+          payload.unidad || '',                           // L: UNIDAD
+          payload.semanaAcademica || payload.semana || '',// M: SEMANA
+          payload.temaProgramado || payload.tema || '',   // N: TEMA PROGRAMADO
+          recursosText,                                   // O: RECURSOS
+          payload.horaInicio || '',                       // P: HORA INICIO
+          payload.horaFinalizacion || payload.horaFin || '', // Q: HORA FIN
+          payload.numEstudiantes || '',                   // R: N° ESTUDIANTES
+          payload.validacion || 'PENDIENTE',              // S: VALIDACIÓN
+          payload.observaciones || '',                    // T: OBSERVACIONES
+          payload.tipo_sesion || payload.tipoSesion || 'Clase Regular', // U: TIPO
+          payload.fecha_recuperar || payload.fechaRecuperar || '',      // V: FECHA RECUPERAR
+          'COMPLETADO',                                   // W: ESTADO_SESION
+        ];
+
+        sheet.getRange(filaEncontrada, 1, 1, 23).setValues([updatedRow]);
+
+        return createJsonResponse({
+          success: true,
+          message: 'Sesión actualizada exitosamente por Dirección.',
+          data: { fila: filaEncontrada }
+        });
+      } else {
+        return createJsonResponse({
+          success: false,
+          message: 'No se encontró la sesión a editar.'
+        });
+      }
+    }
+
+    // ══════════════════════════════════════════
+    // ACCIÓN: EDITAR O AGREGAR DOCENTE (DIRECTORA)
+    // ══════════════════════════════════════════
+    if (actionPost === 'editar_docente' || actionPost === 'guardar_docente') {
+      const sheetDoc = getSheet(HOJA_DOCENTES);
+      const dataDoc = sheetDoc.getDataRange().getValues();
+      const targetDni = String(payload.dniOriginal || payload.dni || '').trim().toUpperCase();
+      const targetDniNorm = normalizeDni(targetDni);
+
+      let filaDocente = -1;
+      for (let i = 1; i < dataDoc.length; i++) {
+        const row = dataDoc[i];
+        const rowDni = String(row[0] || '').trim().toUpperCase();
+        const rowCod = String(row[1] || '').trim().toUpperCase();
+        const rowDniNorm = normalizeDni(rowDni);
+        const rowCodNorm = normalizeDni(rowCod);
+
+        if (
+          rowDni === targetDni ||
+          rowCod === targetDni ||
+          (targetDniNorm !== '' && (rowDniNorm === targetDniNorm || rowCodNorm === targetDniNorm))
+        ) {
+          filaDocente = i + 1;
+          break;
+        }
+      }
+
+      const cursosStr = Array.isArray(payload.cursos)
+        ? payload.cursos.join(', ')
+        : String(payload.cursos || '').trim();
+
+      const docenteRow = [
+        String(payload.nuevoDni || payload.dni || '').trim(),
+        String(payload.codigo || '').trim(),
+        String(payload.nombre || '').trim(),
+        String(payload.facultad || 'FAING').trim(),
+        String(payload.escuela || 'EPIC').trim(),
+        String(payload.carrera || 'Ingeniería Civil').trim(),
+        cursosStr,
+      ];
+
+      if (filaDocente !== -1) {
+        sheetDoc.getRange(filaDocente, 1, 1, 7).setValues([docenteRow]);
+        return createJsonResponse({
+          success: true,
+          message: 'Datos del docente actualizados exitosamente en Maestro Docentes.',
+          data: { fila: filaDocente }
+        });
+      } else {
+        sheetDoc.appendRow(docenteRow);
+        return createJsonResponse({
+          success: true,
+          message: 'Nuevo docente registrado exitosamente en Maestro Docentes.',
+        });
+      }
+    }
+
+    // ══════════════════════════════════════════
     // FASE 1: INICIO DE CLASE (registro parcial)
     // ══════════════════════════════════════════
     if (actionPost === 'inicio') {

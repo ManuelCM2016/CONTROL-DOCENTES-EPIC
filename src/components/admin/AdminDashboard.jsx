@@ -139,9 +139,8 @@ const AdminDashboard = ({
 
           {/* User Profile Card */}
           <div
-            className={`p-3 rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden ${
-              sidebarCollapsed ? 'text-center' : ''
-            }`}
+            className={`p-3 rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden ${sidebarCollapsed ? 'text-center' : ''
+              }`}
           >
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-md">
@@ -150,7 +149,7 @@ const AdminDashboard = ({
               {!sidebarCollapsed && (
                 <div className="overflow-hidden whitespace-nowrap">
                   <p className="text-xs font-black text-white truncate">
-                    {adminUser?.nombre || 'Dra. Martha Duarte L.'}
+                    {adminUser?.nombre || 'DRA. DUARTE LIZARZABURO MARIA ETELVINA'}
                   </p>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-bold uppercase tracking-wider">
                     Directora
@@ -170,19 +169,17 @@ const AdminDashboard = ({
                 <button
                   key={item.id}
                   onClick={() => setCurrentSection(item.id)}
-                  className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl font-bold text-xs transition-all cursor-pointer group relative ${
-                    isActive
-                      ? 'bg-gradient-to-r from-blue-600/30 via-indigo-600/20 to-transparent text-white border border-blue-500/40 shadow-lg shadow-blue-950/40'
-                      : 'text-white/60 hover:text-white hover:bg-white/[0.04] border border-transparent'
-                  }`}
+                  className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl font-bold text-xs transition-all cursor-pointer group relative ${isActive
+                    ? 'bg-gradient-to-r from-blue-600/30 via-indigo-600/20 to-transparent text-white border border-blue-500/40 shadow-lg shadow-blue-950/40'
+                    : 'text-white/60 hover:text-white hover:bg-white/[0.04] border border-transparent'
+                    }`}
                   title={sidebarCollapsed ? item.label : undefined}
                 >
                   <div
-                    className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
-                      isActive
-                        ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30'
-                        : 'bg-white/5 text-white/50 group-hover:text-white group-hover:bg-white/10'
-                    }`}
+                    className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors ${isActive
+                      ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30'
+                      : 'bg-white/5 text-white/50 group-hover:text-white group-hover:bg-white/10'
+                      }`}
                   >
                     <Icon className="w-4 h-4" />
                   </div>
@@ -273,11 +270,10 @@ const AdminDashboard = ({
                       setCurrentSection(item.id)
                       setMobileMenuOpen(false)
                     }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs transition-all ${
-                      isActive
-                        ? 'bg-blue-600/30 text-white border border-blue-500/40'
-                        : 'text-white/60 hover:text-white bg-white/5'
-                    }`}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs transition-all ${isActive
+                      ? 'bg-blue-600/30 text-white border border-blue-500/40'
+                      : 'text-white/60 hover:text-white bg-white/5'
+                      }`}
                   >
                     <Icon className="w-4 h-4 text-blue-400" />
                     <span>{item.label}</span>
@@ -317,7 +313,7 @@ const AdminDashboard = ({
           <div className="flex items-center gap-2 self-start sm:self-auto">
             <span className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs font-bold font-mono">
               <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-              Directora: Dra. Martha Duarte L.
+              Directora: DUARTE LIZARZABURO MARIA ETELVINA
             </span>
           </div>
         </header>

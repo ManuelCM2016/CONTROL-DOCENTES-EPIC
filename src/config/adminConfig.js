@@ -21,8 +21,8 @@ export const ADMIN_LOGIN_CODE = 'DIRECTOR'
 
 // ── Usuarios autorizados ──
 export const ADMIN_USERS = [
-  { email: 'mduartel2017@gmail.com', nombre: 'Dra. Martha Duarte L.' },
-  { email: 'marduartel@virtual.upt.pe', nombre: 'Dra. Martha Duarte L.' },
+  { email: 'mduartel2017@gmail.com', nombre: 'DRA. DUARTE LIZARZABURO MARIA ETELVINA' },
+  { email: 'marduartel@virtual.upt.pe', nombre: 'DRA. DUARTE LIZARZABURO MARIA ETELVINA' },
 ]
 
 // ── Contraseña del panel admin ──

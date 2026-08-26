@@ -92,18 +92,23 @@ const MonitoreoView = ({ isDarkMode }) => {
     }
   }
 
-  // Lista de DNIs de docentes con actividad hoy
-  const dnisConActividadHoy = new Set([
-    ...(data.activas || []).map((s) => String(s.dni).trim().replace(/^0+/, '')),
-    ...(data.completadasHoy || []).map((s) => String(s.dni).trim().replace(/^0+/, ''))
-  ])
-
-  // Docentes sin registro hoy
-  const docentesSinRegistro = (data.todosDocentes || []).filter((doc) => {
-    const dniNorm = String(doc.dni || '').trim().replace(/^0+/, '')
-    const codNorm = String(doc.codigo || '').trim().replace(/^0+/, '')
-    return !dnisConActividadHoy.has(dniNorm) && !dnisConActividadHoy.has(codNorm)
+  // Docentes únicos que asistieron / registraron clase hoy (activas o completadas)
+  const docentesAsistieronHoyMap = new Map()
+  ;[...(data.activas || []), ...(data.completadasHoy || [])].forEach((s) => {
+    const key = String(s.dni || s.docente).trim().replace(/^0+/, '')
+    if (!docentesAsistieronHoyMap.has(key)) {
+      docentesAsistieronHoyMap.set(key, {
+        dni: s.dni,
+        nombre: s.docente,
+        sesiones: [],
+        enVivo: false
+      })
+    }
+    const entry = docentesAsistieronHoyMap.get(key)
+    entry.sesiones.push(s)
+    if (s.estado === 'ACTIVO') entry.enVivo = true
   })
+  const docentesAsistieronHoy = Array.from(docentesAsistieronHoyMap.values())
 
   // Filtros de búsqueda
   const filterSearch = (item, fields) => {
@@ -118,8 +123,8 @@ const MonitoreoView = ({ isDarkMode }) => {
   const completadasFiltradas = (data.completadasHoy || []).filter((s) =>
     filterSearch(s, ['docente', 'asignatura', 'aula', 'tema', 'dni'])
   )
-  const sinRegistroFiltrados = docentesSinRegistro.filter((d) =>
-    filterSearch(d, ['nombre', 'dni', 'codigo'])
+  const docentesAsistieronFiltrados = docentesAsistieronHoy.filter((d) =>
+    filterSearch(d, ['nombre', 'dni'])
   )
 
   return (
@@ -224,29 +229,29 @@ const MonitoreoView = ({ isDarkMode }) => {
           <div className="text-[11px] text-white/40 mt-1">Registros de salida completados</div>
         </motion.div>
 
-        {/* Sin Actividad Hoy */}
+        {/* Docentes que Asistieron Hoy */}
         <motion.div
           whileHover={{ y: -3 }}
-          onClick={() => setTab('sin_registro')}
+          onClick={() => setTab('docentes_asistencia')}
           className={`cursor-pointer p-5 rounded-3xl border transition-all duration-300 ${
-            tab === 'sin_registro'
-              ? 'bg-gradient-to-br from-amber-950/60 via-amber-900/30 to-black/60 border-amber-500/60 shadow-lg shadow-amber-950/50 ring-1 ring-amber-500/30'
+            tab === 'docentes_asistencia'
+              ? 'bg-gradient-to-br from-purple-950/60 via-purple-900/30 to-black/60 border-purple-500/60 shadow-lg shadow-purple-950/50 ring-1 ring-purple-500/30'
               : 'bg-white/[0.02] border-white/10 hover:border-white/20'
           }`}
         >
           <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+            <div className="w-10 h-10 rounded-2xl bg-purple-500/20 text-purple-400 flex items-center justify-center border border-purple-500/30">
               <UserCheck className="w-5 h-5" />
             </div>
-            <span className="text-[10px] uppercase font-mono font-bold text-amber-400 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
-              Plana Docente
+            <span className="text-[10px] uppercase font-mono font-bold text-purple-400 px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/20">
+              ASISTENCIA HOY
             </span>
           </div>
           <div className="text-3xl font-black text-white font-mono tracking-tight mb-1">
-            {docentesSinRegistro.length}
+            {docentesAsistieronHoy.length}
           </div>
-          <div className="text-xs font-bold text-amber-300">Docentes Sin Registro Hoy</div>
-          <div className="text-[11px] text-white/40 mt-1">Sin clase iniciada hoy</div>
+          <div className="text-xs font-bold text-purple-300">Docentes Asistieron Hoy</div>
+          <div className="text-[11px] text-white/40 mt-1">Docentes únicos con registro hoy</div>
         </motion.div>
       </div>
 
@@ -277,15 +282,15 @@ const MonitoreoView = ({ isDarkMode }) => {
             <span>Finalizadas ({completadasFiltradas.length})</span>
           </button>
           <button
-            onClick={() => setTab('sin_registro')}
+            onClick={() => setTab('docentes_asistencia')}
             className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              tab === 'sin_registro'
-                ? 'bg-amber-500/30 text-amber-200 border border-amber-500/50 shadow-xs'
+              tab === 'docentes_asistencia'
+                ? 'bg-purple-500/30 text-purple-200 border border-purple-500/50 shadow-xs'
                 : 'text-white/50 hover:text-white hover:bg-white/5'
             }`}
           >
-            <UserCheck className="w-3.5 h-3.5 text-amber-400" />
-            <span>Sin Registro ({sinRegistroFiltrados.length})</span>
+            <UserCheck className="w-3.5 h-3.5 text-purple-400" />
+            <span>Asistieron Hoy ({docentesAsistieronFiltrados.length})</span>
           </button>
         </div>
 
@@ -469,52 +474,87 @@ const MonitoreoView = ({ isDarkMode }) => {
           </motion.div>
         )}
 
-        {tab === 'sin_registro' && (
+        {tab === 'docentes_asistencia' && (
           <motion.div
-            key="tab-sin-registro"
+            key="tab-docentes-asistencia"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.25 }}
             className="space-y-4"
           >
-            <div className="rounded-3xl bg-white/[0.02] border border-white/10 overflow-hidden">
-              <div className="p-4 border-b border-white/10 flex items-center justify-between">
+            <div className="rounded-3xl bg-white/[0.02] border border-white/10 overflow-hidden shadow-xl">
+              <div className="p-4 sm:p-5 border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-black/20">
                 <div>
-                  <h3 className="text-sm font-bold text-white">
-                    Plana Docente Sin Registro Hoy ({sinRegistroFiltrados.length})
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-purple-400" />
+                    <span>Docentes que Asistieron y Registraron Clase Hoy ({docentesAsistieronFiltrados.length})</span>
                   </h3>
                   <p className="text-xs text-white/40">
-                    Docentes inscritos en el Maestro que aún no han reportado actividad el día de hoy
+                    Plana docente con sesiones activas o concluidas en la jornada de hoy
                   </p>
                 </div>
+                <span className="self-start sm:self-auto px-3 py-1 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-300 text-xs font-bold font-mono">
+                  {docentesAsistieronHoy.length} Docentes Únicos
+                </span>
               </div>
 
-              <div className="divide-y divide-white/5 max-h-[500px] overflow-y-auto custom-scrollbar">
-                {sinRegistroFiltrados.length === 0 ? (
-                  <div className="text-center py-10 text-xs text-white/40">
-                    Todos los docentes han registrado actividad hoy o no coinciden con la búsqueda.
+              <div className="divide-y divide-white/5 max-h-[520px] overflow-y-auto custom-scrollbar">
+                {docentesAsistieronFiltrados.length === 0 ? (
+                  <div className="text-center py-12 text-xs text-white/40">
+                    No se encontraron docentes con asistencia registrada hoy.
                   </div>
                 ) : (
-                  sinRegistroFiltrados.map((doc, idx) => (
+                  docentesAsistieronFiltrados.map((doc, idx) => (
                     <div
                       key={doc.dni || idx}
-                      className="p-3.5 px-5 flex items-center justify-between hover:bg-white/[0.02] transition-colors"
+                      className="p-4 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-white/[0.02] transition-colors"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">
+                      <div className="flex items-start sm:items-center gap-3.5">
+                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-600/30 border border-purple-500/30 text-purple-300 flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
                           {idx + 1}
                         </div>
-                        <div>
-                          <p className="text-xs font-bold text-white">{doc.nombre}</p>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-xs sm:text-sm font-bold text-white leading-tight">
+                              {doc.nombre}
+                            </h4>
+                            {doc.enVivo ? (
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                                En Clase Ahora
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                Turno Concluido
+                              </span>
+                            )}
+                          </div>
                           <p className="text-[11px] font-mono text-white/40">
-                            DNI: {doc.dni} {doc.codigo ? `• Cód: ${doc.codigo}` : ''}
+                            DNI: {doc.dni} • {doc.sesiones.length} {doc.sesiones.length === 1 ? 'sesión hoy' : 'sesiones hoy'}
                           </p>
                         </div>
                       </div>
-                      <span className="text-[11px] px-2.5 py-1 rounded-full bg-white/5 text-white/40 border border-white/10 font-medium">
-                        Sin registro hoy
-                      </span>
+
+                      {/* Resumen de Aulas y Cursos dictados hoy */}
+                      <div className="flex flex-wrap items-center gap-2 pl-12 sm:pl-0">
+                        {doc.sesiones.map((ses, sIdx) => (
+                          <div
+                            key={sIdx}
+                            className="px-2.5 py-1 rounded-lg bg-black/40 border border-white/10 text-[11px] space-y-0.5"
+                          >
+                            <span className="font-mono font-bold text-emerald-400 mr-1.5">
+                              {ses.aula || 'Aula'}
+                            </span>
+                            <span className="text-white/70 truncate max-w-[150px] inline-block align-bottom" title={ses.asignatura}>
+                              {ses.asignatura}
+                            </span>
+                            <span className="text-white/40 ml-1.5 font-mono text-[10px]">
+                              ({ses.horaInicio})
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))
                 )}
