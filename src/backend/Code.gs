@@ -791,13 +791,39 @@ function getMonitoreoActivo() {
   
   for (let i = 1; i < dataBD.length; i++) {
     const row = dataBD[i];
+    
+    // Obtener fecha de la columna I (FECHA)
     let fechaStr = row[8] instanceof Date
       ? Utilities.formatDate(row[8], Session.getScriptTimeZone(), 'yyyy-MM-dd')
       : String(row[8] || '').trim();
     
+    // FALLBACK: Si la columna FECHA está vacía, usar el TIMESTAMP (columna A)
+    if (!fechaStr && row[0]) {
+      let tsStr = row[0] instanceof Date
+        ? Utilities.formatDate(row[0], Session.getScriptTimeZone(), 'yyyy-MM-dd')
+        : String(row[0] || '');
+      // Si el timestamp tiene formato dd/MM/yyyy, convertir
+      if (tsStr.indexOf('/') !== -1) {
+        var parts = tsStr.split(/[\/ ]/);
+        if (parts.length >= 3 && parts[0].length <= 2) {
+          tsStr = parts[2] + '-' + parts[1].padStart(2, '0') + '-' + parts[0].padStart(2, '0');
+        }
+      }
+      fechaStr = tsStr;
+    }
+    
     if (fechaStr !== hoy) continue;
     
     const estado = String(row[22] || '').trim().toUpperCase();
+    const horaFinRaw = row[16] instanceof Date
+      ? Utilities.formatDate(row[16], Session.getScriptTimeZone(), 'HH:mm:ss')
+      : String(row[16] || '').trim();
+    
+    // Determinar si la sesión está realmente activa:
+    // 1. Si ESTADO_SESION es explícitamente ACTIVO, O
+    // 2. Si no tiene hora de fin (la clase no ha cerrado aún)
+    const esActiva = estado === 'ACTIVO' || (!horaFinRaw && String(row[15] || '').trim() !== '');
+    
     const sesion = {
       fila: i + 1,
       dni: String(row[1] || ''),
@@ -807,15 +833,13 @@ function getMonitoreoActivo() {
       horaInicio: row[15] instanceof Date
         ? Utilities.formatDate(row[15], Session.getScriptTimeZone(), 'HH:mm:ss')
         : String(row[15] || ''),
-      horaFin: row[16] instanceof Date
-        ? Utilities.formatDate(row[16], Session.getScriptTimeZone(), 'HH:mm:ss')
-        : String(row[16] || ''),
+      horaFin: horaFinRaw,
       numEstudiantes: String(row[17] || ''),
       tema: String(row[13] || ''),
-      estado: estado || 'COMPLETADO', // Registros antiguos sin columna W
+      estado: esActiva ? 'ACTIVO' : (estado || 'COMPLETADO'),
     };
     
-    if (estado === 'ACTIVO') {
+    if (esActiva) {
       activas.push(sesion);
     } else {
       completadasHoy.push(sesion);
