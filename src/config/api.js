@@ -10,7 +10,7 @@
 // ── URL de la API de Google Apps Script ──
 // Dejar vacío ('') para usar datos mock locales (modo desarrollo)
 // Pegar la URL real para conectar con Google Sheets (modo producción)
-export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwVXESviKguY1w21oepGqvaAB5_6WkacBlOkzANm9Ulltwgl7hPOLi_DBa35wfLcpUm/exec'
+export const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzlx5RCE8oS6Se8m_WGROvbIeKNDXXuX5HXgcYyEi8SynGzmlhLI9YdaPpX7ukU3TMh/exec'
 
 // ── Modo de operación ──
 // true = usa siempre mock data (sin importar si hay URL)

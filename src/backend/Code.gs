@@ -481,32 +481,37 @@ function doPost(e) {
       const timestamp = new Date();
       const timestampStr = Utilities.formatDate(timestamp, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
 
-      // Verificar que no exista ya una sesión ACTIVA para este DNI + fecha + horaInicio
       const dataExistente = sheet.getDataRange().getValues();
       const targetDni = String(payload.dni || '').trim().toUpperCase();
       const targetDniNorm = normalizeDni(targetDni);
       const targetFecha = String(payload.fecha || '').trim();
-      const targetHoraInicio = String(payload.horaInicio || '').trim();
+      const targetAsignatura = String(payload.asignatura || '').trim().toUpperCase();
 
+      // ── ANTI-DUPLICADO MEJORADO ──────────────────────────────────────────────
+      // Bloquear si ya existe una fila ACTIVA del mismo DNI + FECHA + ASIGNATURA.
+      // Ya NO se compara por horaInicio para evitar que doble-clic cree 2 filas.
       for (let i = dataExistente.length - 1; i >= 1; i--) {
         const row = dataExistente[i];
         const rowDni = String(row[1]).trim().toUpperCase();
         const rowDniNorm = normalizeDni(rowDni);
+        const rowEstado = String(row[22] || '').trim().toUpperCase();
         let rowFecha = row[8] instanceof Date
           ? Utilities.formatDate(row[8], Session.getScriptTimeZone(), 'yyyy-MM-dd')
           : String(row[8] || '').trim();
-        let rowHoraInicio = row[15] instanceof Date
-          ? Utilities.formatDate(row[15], Session.getScriptTimeZone(), 'HH:mm:ss')
-          : String(row[15] || '').trim();
+        const rowAsignatura = String(row[9] || '').trim().toUpperCase();
 
-        if (
-          (rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm)) &&
-          rowFecha === targetFecha &&
-          rowHoraInicio === targetHoraInicio
-        ) {
+        const mismoDocente = (rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm));
+        const mismaFecha = (rowFecha === targetFecha);
+        const mismaAsignatura = (targetAsignatura === '' || rowAsignatura === '' || rowAsignatura === targetAsignatura);
+
+        if (mismoDocente && mismaFecha && mismaAsignatura && rowEstado === 'ACTIVO') {
+          // Ya hay una sesión activa: devolver éxito sin crear duplicado
           return createJsonResponse({
             success: true,
             message: 'La sesión de inicio ya fue registrada previamente.',
+            horaInicio: row[15] instanceof Date
+              ? Utilities.formatDate(row[15], Session.getScriptTimeZone(), 'HH:mm:ss')
+              : String(row[15] || ''),
           });
         }
       }
@@ -555,10 +560,14 @@ function doPost(e) {
       const targetDniNorm = normalizeDni(targetDni);
       const targetFecha = String(payload.fecha || '').trim();
       const targetHoraInicio = String(payload.horaInicio || '').trim();
+      const targetAsignatura = String(payload.asignatura || '').trim().toUpperCase();
 
+      // Recopilar TODAS las filas ACTIVAS del docente+fecha+asignatura (puede haber duplicados por doble clic)
+      let filasActivas = [];
       let filaActiva = -1;
 
-      // Buscar la fila ACTIVA que coincida con DNI + fecha + horaInicio
+      // Buscar filas ACTIVAS del mismo DNI + FECHA + ASIGNATURA
+      // Se incluye ASIGNATURA en el filtro para NO afectar otros cursos del mismo docente en el mismo día
       for (let i = dataExistente.length - 1; i >= 1; i--) {
         const row = dataExistente[i];
         const rowDni = String(row[1]).trim().toUpperCase();
@@ -572,14 +581,23 @@ function doPost(e) {
           ? Utilities.formatDate(row[15], Session.getScriptTimeZone(), 'HH:mm:ss')
           : String(row[15] || '').trim();
 
-        if (
-          (rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm)) &&
-          rowFecha === targetFecha &&
-          rowHoraInicio === targetHoraInicio &&
-          rowEstado === 'ACTIVO'
-        ) {
-          filaActiva = i + 1; // Convertir índice 0 a fila 1-indexed de Sheets
-          break;
+        const mismoDocente = (rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm));
+        const mismaFecha = (rowFecha === targetFecha);
+        // ← Incluir asignatura para no tocar otros cursos del mismo docente en el mismo día
+        const rowAsignatura = String(row[9] || '').trim().toUpperCase();
+        const mismaAsignatura = (targetAsignatura === '' || rowAsignatura === '' || rowAsignatura === targetAsignatura);
+
+        if (mismoDocente && mismaFecha && mismaAsignatura && rowEstado === 'ACTIVO') {
+          // Priorizar la fila que coincide exactamente con horaInicio del payload
+          if (rowHoraInicio === targetHoraInicio && filaActiva === -1) {
+            filaActiva = i + 1;
+          } else if (filaActiva === -1) {
+            // Si no hay coincidencia exacta de hora, usar la primera ACTIVA encontrada del mismo curso
+            filaActiva = i + 1;
+          } else {
+            // Fila ACTIVA duplicada del mismo curso: limpiarla al cerrar
+            filasActivas.push(i + 1);
+          }
         }
       }
 
@@ -589,7 +607,7 @@ function doPost(e) {
         : String(payload.recursos || '');
 
       if (filaActiva !== -1) {
-        // Actualizar la fila existente con los datos completos
+        // Actualizar la fila principal con los datos completos del cierre
         const range = sheet.getRange(filaActiva, 1, 1, 23); // 23 columnas (A-W)
         const timestamp = new Date();
         const timestampStr = Utilities.formatDate(timestamp, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
@@ -622,10 +640,22 @@ function doPost(e) {
 
         range.setValues([updatedRow]);
 
+        // Eliminar FÍSICAMENTE las filas duplicadas del Excel
+        // Se ordenan de mayor a menor (b - a) para que al borrar una fila no cambie el índice de las superiores
+        filasActivas.sort(function(a, b) { return b - a; }).forEach(function(filaIdx) {
+          try {
+            sheet.deleteRow(filaIdx);
+          } catch (e) {
+            // Fallback en caso de bloqueo de rango
+            sheet.getRange(filaIdx, 23, 1, 1).setValue('COMPLETADO');
+          }
+        });
+
         return createJsonResponse({
           success: true,
           message: 'Sesión registrada exitosamente.',
         });
+
       } else {
         // No se encontró fila ACTIVA — hacer registro completo directo (fallback)
         const timestamp = new Date();

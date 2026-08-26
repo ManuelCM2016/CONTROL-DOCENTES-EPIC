@@ -329,6 +329,12 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
 
   // ── Registrar Inicio de Clase (Inmediato al entrar al aula) ──
   const handleRegistrarInicio = () => {
+    // ── GUARD: Bloquear doble registro si ya hay una sesión iniciada ──
+    if (sessionState === 'started' || sessionState === 'finished') {
+      showToast('warning', 'La sesión ya fue iniciada. No se puede registrar dos veces.')
+      return
+    }
+
     const now = new Date().toLocaleTimeString('es-PE', {
       hour: '2-digit',
       minute: '2-digit',
@@ -367,6 +373,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
     setSessionState('started')
     setShowStartModal(true)
     showToast('success', `¡Inicio de clase registrado a las ${now}!`)
+
 
     // ── Programar notificación push ──
     const totalMinutos = (parseInt(duracionHoras, 10) || 0) * 60 + (parseInt(duracionMinutos, 10) || 0)
