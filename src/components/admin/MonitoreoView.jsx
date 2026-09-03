@@ -246,7 +246,7 @@ const MonitoreoView = ({ isDarkMode }) => {
       </div>
 
       {/* Tarjetas Resumen de Estado Hoy */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Activas Ahora */}
         <motion.div
           whileHover={{ y: -3 }}
@@ -322,6 +322,31 @@ const MonitoreoView = ({ isDarkMode }) => {
           <div className="text-xs font-bold text-purple-300">Docentes Asistieron Hoy</div>
           <div className="text-[11px] text-white/40 mt-1">Docentes únicos con registro hoy</div>
         </motion.div>
+
+        {/* Clases Programadas Hoy */}
+        <motion.div
+          whileHover={{ y: -3 }}
+          onClick={() => setTab('programadas')}
+          className={`cursor-pointer p-5 rounded-3xl border transition-all duration-300 ${
+            tab === 'programadas'
+              ? 'bg-gradient-to-br from-amber-950/60 via-amber-900/30 to-black/60 border-amber-500/60 shadow-lg shadow-amber-950/50 ring-1 ring-amber-500/30'
+              : 'bg-white/[0.02] border-white/10 hover:border-white/20'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+              <Calendar className="w-5 h-5" />
+            </div>
+            <span className="text-[10px] uppercase font-mono font-bold text-amber-400 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
+              HORARIO
+            </span>
+          </div>
+          <div className="text-3xl font-black text-white font-mono tracking-tight mb-1">
+            {data.clasesProgramadas?.length || 0}
+          </div>
+          <div className="text-xs font-bold text-amber-300">Clases Programadas Hoy</div>
+          <div className="text-[11px] text-white/40 mt-1">Según horario del semestre</div>
+        </motion.div>
       </div>
 
       {/* Barra de Filtros & Búsqueda */}
@@ -360,6 +385,17 @@ const MonitoreoView = ({ isDarkMode }) => {
           >
             <UserCheck className="w-3.5 h-3.5 text-purple-400" />
             <span>Asistieron Hoy ({docentesAsistieronFiltrados.length})</span>
+          </button>
+          <button
+            onClick={() => setTab('programadas')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              tab === 'programadas'
+                ? 'bg-amber-500/30 text-amber-200 border border-amber-500/50 shadow-xs'
+                : 'text-white/50 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5 text-amber-400" />
+            <span>Programadas ({data.clasesProgramadas?.length || 0})</span>
           </button>
         </div>
 
@@ -760,6 +796,89 @@ const MonitoreoView = ({ isDarkMode }) => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* TAB: Clases Programadas Hoy */}
+      {tab === 'programadas' && (
+        <motion.div
+          key="tab-programadas"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="space-y-4"
+        >
+          {(!data.clasesProgramadas || data.clasesProgramadas.length === 0) ? (
+            <div className="text-center py-16 px-4 rounded-3xl bg-white/[0.02] border border-white/10">
+              <div className="w-14 h-14 mx-auto rounded-3xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-3">
+                <Calendar className="w-7 h-7" />
+              </div>
+              <h3 className="text-base font-bold text-white mb-1">No hay clases programadas para hoy</h3>
+              <p className="text-xs text-white/40">Verifica que los horarios del semestre estén cargados.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {data.clasesProgramadas
+                .filter(cp => {
+                  if (!searchTerm) return true
+                  const q = searchTerm.toLowerCase()
+                  return cp.docente?.toLowerCase().includes(q) || cp.curso?.toLowerCase().includes(q) || cp.aula?.toLowerCase().includes(q)
+                })
+                .sort((a, b) => (a.horaInicio || '').localeCompare(b.horaInicio || ''))
+                .map((cp, idx) => {
+                  // Verificar si ya tiene sesión activa o completada
+                  const tieneActiva = data.activas?.some(a => {
+                    const docNorm1 = (a.docente || '').toUpperCase().replace(/[ÁÉÍÓÚ]/g, m => ({Á:'A',É:'E',Í:'I',Ó:'O',Ú:'U'}[m]))
+                    const docNorm2 = (cp.docente || '').toUpperCase().replace(/[ÁÉÍÓÚ]/g, m => ({Á:'A',É:'E',Í:'I',Ó:'O',Ú:'U'}[m]))
+                    return docNorm1.includes(docNorm2) || docNorm2.includes(docNorm1)
+                  })
+                  const tieneCompletada = data.completadasHoy?.some(c => {
+                    const docNorm1 = (c.docente || '').toUpperCase().replace(/[ÁÉÍÓÚ]/g, m => ({Á:'A',É:'E',Í:'I',Ó:'O',Ú:'U'}[m]))
+                    const docNorm2 = (cp.docente || '').toUpperCase().replace(/[ÁÉÍÓÚ]/g, m => ({Á:'A',É:'E',Í:'I',Ó:'O',Ú:'U'}[m]))
+                    return docNorm1.includes(docNorm2) || docNorm2.includes(docNorm1)
+                  })
+                  const estado = tieneActiva ? 'activa' : tieneCompletada ? 'completada' : 'pendiente'
+
+                  return (
+                    <motion.div
+                      key={idx}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: Math.min(idx * 0.03, 0.5) }}
+                      className={`p-4 rounded-2xl border transition-all ${
+                        estado === 'activa' ? 'bg-emerald-500/5 border-emerald-500/30' :
+                        estado === 'completada' ? 'bg-blue-500/5 border-blue-500/20' :
+                        'bg-white/[0.02] border-white/10'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                          estado === 'activa' ? 'bg-emerald-500/20 text-emerald-300' :
+                          estado === 'completada' ? 'bg-blue-500/20 text-blue-300' :
+                          'bg-amber-500/20 text-amber-300'
+                        }`}>
+                          {estado === 'activa' ? '● EN CLASE' : estado === 'completada' ? '✓ COMPLETADA' : '○ PENDIENTE'}
+                        </span>
+                        <span className="text-[10px] text-white/30 font-mono">Ciclo {cp.ciclo}</span>
+                      </div>
+                      <p className="text-xs font-black text-white leading-tight">{cp.docente}</p>
+                      <p className="text-[11px] text-white/50 mt-1">{cp.curso}</p>
+                      <div className="flex items-center gap-3 mt-2 text-[11px]">
+                        <span className="flex items-center gap-1 text-amber-300 font-mono font-bold">
+                          <Clock className="w-3 h-3" /> {cp.horaInicio} – {cp.horaFin}
+                        </span>
+                        <span className="flex items-center gap-1 text-emerald-300 font-bold">
+                          <MapPin className="w-3 h-3" /> {cp.aula}
+                        </span>
+                        {cp.seccion && (
+                          <span className="text-white/30">Sec. {cp.seccion}</span>
+                        )}
+                      </div>
+                    </motion.div>
+                  )
+                })}
+            </div>
+          )}
+        </motion.div>
+      )}
     </div>
   )
 }

@@ -89,6 +89,64 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: 'easeOut' } },
 }
 
+/**
+ * Busca en la lista oficial de cursos del docente (de MAESTRO_DOCENTES)
+ * el curso que coincide con la clase del horario (por código, nombre y sección).
+ */
+const encontrarCursoOficial = (claseHorario, cursosDocente = []) => {
+  if (!claseHorario || !Array.isArray(cursosDocente) || cursosDocente.length === 0) {
+    return claseHorario?.curso || ''
+  }
+
+  const cod = (claseHorario.codigo || '').trim().toUpperCase()
+  const sec = (claseHorario.seccion || '').trim().toUpperCase()
+  const cursoNorm = (claseHorario.curso || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase()
+
+  // 1. Coincidencia más precisa: CÓDIGO y SECCIÓN (ej: 'EG-362' y 'B' o 'CI-565' y 'A')
+  if (cod && sec) {
+    const match = cursosDocente.find(c => {
+      const cUpper = c.toUpperCase()
+      const tieneCod = cUpper.includes(cod)
+      const tieneSec = cUpper.endsWith(sec) || cUpper.includes(`- ${sec}`) || cUpper.includes(` ${sec}`)
+      return tieneCod && tieneSec
+    })
+    if (match) return match
+  }
+
+  // 2. Coincidencia por NOMBRE y SECCIÓN (ej: 'ÉTICA' y 'B')
+  if (cursoNorm && sec) {
+    const match = cursosDocente.find(c => {
+      const cNorm = c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+      const tieneNombre = cNorm.includes(cursoNorm)
+      const tieneSec = cNorm.endsWith(sec) || cNorm.includes(`- ${sec}`) || cNorm.includes(` ${sec}`)
+      return tieneNombre && tieneSec
+    })
+    if (match) return match
+  }
+
+  // 3. Coincidencia por CÓDIGO solo (ej: 'EG-362')
+  if (cod) {
+    const match = cursosDocente.find(c => c.toUpperCase().includes(cod))
+    if (match) return match
+  }
+
+  // 4. Coincidencia por NOMBRE solo (ej: 'ÉTICA')
+  if (cursoNorm) {
+    const match = cursosDocente.find(c => {
+      const cNorm = c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+      return cNorm.includes(cursoNorm)
+    })
+    if (match) return match
+  }
+
+  // Fallback si no hay match
+  return claseHorario.curso || ''
+}
+
 const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, isDarkMode, toggleTheme }) => {
   const [isSending, setIsSending] = useState(false)
   const [isSent, setIsSent] = useState(false)
@@ -277,11 +335,16 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
 
             setSugerenciaHorario(mejorClase)
 
-            // Solo auto-llenar si el formulario está vacío (no tiene asignatura seleccionada)
-            if (!formData.asignatura) {
+            // Auto-llenar con el curso oficial de MAESTRO_DOCENTES
+            const cursosOficiales = docente.cursos || []
+            const necesitaAutoLlenar = !formData.asignatura || (
+              cursosOficiales.length > 0 && !cursosOficiales.includes(formData.asignatura)
+            )
+
+            if (necesitaAutoLlenar) {
               // Mapear aula del horario al formato del select de aulas
               let aulaMatch = ''
-              const aulaHorario = mejorClase.aula.toUpperCase()
+              const aulaHorario = (mejorClase.aula || '').toUpperCase()
               AULAS_LABORATORIOS_OPTIONS.forEach(opt => {
                 if (opt.toUpperCase().includes(aulaHorario)) {
                   aulaMatch = opt
@@ -292,9 +355,12 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
               setDuracionHoras(durH)
               setDuracionMinutos(0)
 
+              // Mapear al curso oficial registrado en MAESTRO_DOCENTES
+              const cursoOficial = encontrarCursoOficial(mejorClase, cursosOficiales)
+
               setFormData(prev => ({
                 ...prev,
-                asignatura: mejorClase.curso,
+                asignatura: cursoOficial || mejorClase.curso,
                 aulaLab: aulaMatch || prev.aulaLab,
                 seccion: mejorClase.seccion || prev.seccion,
               }))
@@ -310,11 +376,31 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
     fetchHorario()
   }, [docente?.dni, sessionState])
 
+  // ── Auto-sanitización: Corregir nombres cortos guardados en cache (ej: "ÉTICA") al formato oficial (ej: "EG-362 ÉTICA - B") ──
+  useEffect(() => {
+    if (formData.asignatura && docente?.cursos?.length > 0 && !docente.cursos.includes(formData.asignatura)) {
+      const cursoCorregido = encontrarCursoOficial(
+        { curso: formData.asignatura, seccion: formData.seccion || sugerenciaHorario?.seccion },
+        docente.cursos
+      )
+      if (cursoCorregido && cursoCorregido !== formData.asignatura && docente.cursos.includes(cursoCorregido)) {
+        setFormData(prev => ({ ...prev, asignatura: cursoCorregido }))
+      }
+    }
+  }, [docente?.cursos, formData.asignatura, formData.seccion, sugerenciaHorario?.seccion])
 
   // ── Auto-guardar formulario en localStorage por docente ──
   const updateField = (field, value) => {
     setFormData((prev) => {
       const updated = { ...prev, [field]: value }
+
+      // Si cambia la asignatura, extraer automáticamente la sección si viene en el texto oficial (ej: "EG-362 ÉTICA - B" -> "B")
+      if (field === 'asignatura' && value) {
+        const matchSec = value.match(/(?:[-–\s]+)([A-Z0-9])$/i)
+        if (matchSec) {
+          updated.seccion = matchSec[1].toUpperCase()
+        }
+      }
 
       // Si cambia la fecha Y es Clase Regular, autocalcular semana y unidad
       if (field === 'fecha' && value && updated.tipoSesion === 'Clase Regular') {
@@ -556,6 +642,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       aulaLab: formData.aulaLab,
       fecha: formData.fecha,
       asignatura: formData.asignatura,
+      seccion: formData.seccion || '',
       unidad: formData.unidad,
       semanaAcademica: formData.semanaAcademica,
       temaProgramado: formData.temaProgramado,
@@ -1194,20 +1281,34 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                       className={isDarkMode ? 'select-institutional-dark' : 'select-institutional-light'}
                     >
                       <option value="">Seleccione la asignatura y sección</option>
-                      {/* Mostrar cursos del horario del docente si están disponibles */}
-                      {horariosDocente.length > 0 && (() => {
-                        const cursosUnicos = [...new Set(horariosDocente.map(h => h.curso))]
+                      {(() => {
                         const cursosDocente = docente.cursos || []
-                        // Combinar cursos del horario con los de MAESTRO_DOCENTES sin duplicados
-                        const todosLosCursos = [...new Set([...cursosUnicos, ...cursosDocente])]
-                        return todosLosCursos.map((curso) => (
-                          <option key={curso} value={curso}>{curso}</option>
-                        ))
+                        // Si el docente tiene cursos en MAESTRO_DOCENTES, mostrar EXCLUSIVAMENTE esos (formato oficial)
+                        if (cursosDocente.length > 0) {
+                          const opciones = [...cursosDocente]
+                          // Si hay una asignatura seleccionada válida pero por alguna razón no está en la lista, incluirla
+                          if (formData.asignatura && !opciones.includes(formData.asignatura)) {
+                            opciones.push(formData.asignatura)
+                          }
+                          return opciones.map((curso) => (
+                            <option key={curso} value={curso}>{curso}</option>
+                          ))
+                        }
+
+                        // Fallback: SOLO si MAESTRO_DOCENTES no tiene cursos asignados para este docente
+                        if (horariosDocente.length > 0) {
+                          const cursosDeHorario = [...new Set(horariosDocente.map(h => {
+                            const cod = h.codigo ? `${h.codigo} ` : ''
+                            const sec = h.seccion ? ` - ${h.seccion}` : ''
+                            return `${cod}${h.curso}${sec}`
+                          }))]
+                          return cursosDeHorario.map((curso) => (
+                            <option key={curso} value={curso}>{curso}</option>
+                          ))
+                        }
+
+                        return null
                       })()}
-                      {/* Fallback: si no hay horarios, mostrar cursos del maestro docentes */}
-                      {horariosDocente.length === 0 && (docente.cursos || []).map((curso) => (
-                        <option key={curso} value={curso}>{curso}</option>
-                      ))}
                     </select>
                   </div>
                 </div>

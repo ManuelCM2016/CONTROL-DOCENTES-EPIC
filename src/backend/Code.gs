@@ -1364,6 +1364,43 @@ function getListaDocentes() {
 // ══════════════ FUNCIONES HORARIOS ══════════════
 
 /**
+ * Formatea una celda de hora que puede ser Date o String → "HH:mm"
+ */
+function formatHoraCell(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, 'America/Lima', 'HH:mm');
+  }
+  var str = String(val).trim();
+  // Si ya tiene formato HH:mm o HH:mm:ss, extraer solo HH:mm
+  var match = str.match(/(\d{1,2}:\d{2})/);
+  if (match) return match[1];
+  return str;
+}
+
+/**
+ * Normaliza un nombre de docente para comparación flexible:
+ * - Quita prefijos (MTRO., ING., DR., DRA., MG., MSC., etc.)
+ * - Quita tildes/acentos
+ * - Quita comas
+ * - Convierte a mayúsculas
+ */
+function normalizeNombreDocente(nombre) {
+  if (!nombre) return '';
+  var n = String(nombre).trim().toUpperCase();
+  // Quitar prefijos comunes
+  n = n.replace(/^(MTRO\.|MTRA\.|ING\.|DR\.|DRA\.|MG\.|MGR\.|MSC\.|LIC\.|PROF\.|ARQ\.)\s*/gi, '');
+  // Quitar tildes/acentos
+  n = n.replace(/[ÁÀÂÄ]/g, 'A').replace(/[ÉÈÊË]/g, 'E').replace(/[ÍÌÎÏ]/g, 'I')
+       .replace(/[ÓÒÔÖ]/g, 'O').replace(/[ÚÙÛÜ]/g, 'U').replace(/[Ñ]/g, 'N');
+  // Quitar comas y puntos
+  n = n.replace(/[,\.]/g, ' ');
+  // Quitar espacios múltiples
+  n = n.replace(/\s+/g, ' ').trim();
+  return n;
+}
+
+/**
  * Devuelve todos los horarios del semestre cargados en la pestaña HORARIOS
  */
 function getHorariosSemestre() {
@@ -1378,15 +1415,15 @@ function getHorariosSemestre() {
     const horarios = [];
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
-      if (!row[0] && !row[1]) continue; // Fila vacía
+      if (!row[0] && !row[1]) continue;
       horarios.push({
         codigo: String(row[0] || '').trim(),
         curso: String(row[1] || '').trim(),
         docente: String(row[2] || '').trim(),
         seccion: String(row[3] || '').trim(),
         dia: String(row[4] || '').trim(),
-        horaInicio: String(row[5] || '').trim(),
-        horaFin: String(row[6] || '').trim(),
+        horaInicio: formatHoraCell(row[5]),
+        horaFin: formatHoraCell(row[6]),
         duracionHrs: Number(row[7]) || 0,
         aula: String(row[8] || '').trim(),
         ciclo: String(row[9] || '').trim()
@@ -1405,14 +1442,14 @@ function getHorariosSemestre() {
 
 /**
  * Devuelve los horarios de un docente específico.
- * Busca por nombre completo en HORARIOS o resuelve DNI→nombre via MAESTRO_DOCENTES.
+ * Busca por nombre con matching flexible (quita prefijos, tildes, comas).
  */
 function getHorarioDocente(nombreDocente, dniDocente) {
   try {
     // Si se proporciona DNI, resolver a nombre desde MAESTRO_DOCENTES
-    let nombreBuscar = nombreDocente.toUpperCase();
+    let nombreBuscar = nombreDocente ? nombreDocente.toUpperCase() : '';
     
-    if (dniDocente && !nombreDocente) {
+    if (dniDocente) {
       const sheetDoc = getSheet(HOJA_DOCENTES);
       const dataDoc = sheetDoc.getDataRange().getValues();
       const dniNorm = normalizeDni(dniDocente);
@@ -1431,6 +1468,13 @@ function getHorarioDocente(nombreDocente, dniDocente) {
       return { horarios: [], mensaje: 'Debe proporcionar nombre o DNI del docente.' };
     }
 
+    // Normalizar el nombre del docente buscado (quitar MTRO., tildes, etc.)
+    const nombreNorm = normalizeNombreDocente(nombreBuscar);
+    // Extraer solo apellidos (primera y segunda palabra) para matching más flexible
+    const palabrasNombre = nombreNorm.split(' ');
+    const apellido1 = palabrasNombre[0] || '';
+    const apellido2 = palabrasNombre[1] || '';
+
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const sheet = ss.getSheetByName(HOJA_HORARIOS);
     if (!sheet) return { horarios: [], mensaje: 'La pestaña HORARIOS no existe.' };
@@ -1440,20 +1484,29 @@ function getHorarioDocente(nombreDocente, dniDocente) {
     
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
-      const docHorario = String(row[2] || '').trim().toUpperCase();
+      const docHorarioRaw = String(row[2] || '').trim();
+      const docHorarioNorm = normalizeNombreDocente(docHorarioRaw);
       
-      // Coincidencia exacta o parcial (el nombre en HORARIOS puede tener formato ligeramente diferente)
-      if (docHorario === nombreBuscar || 
-          docHorario.indexOf(nombreBuscar) !== -1 || 
-          nombreBuscar.indexOf(docHorario) !== -1) {
+      // Comparación flexible:
+      // 1. Exacta normalizada
+      // 2. Contiene el nombre normalizado completo
+      // 3. Coinciden ambos apellidos (primera y segunda palabra)
+      const match = (
+        docHorarioNorm === nombreNorm ||
+        docHorarioNorm.indexOf(nombreNorm) !== -1 ||
+        nombreNorm.indexOf(docHorarioNorm) !== -1 ||
+        (apellido1 && apellido2 && docHorarioNorm.indexOf(apellido1) !== -1 && docHorarioNorm.indexOf(apellido2) !== -1)
+      );
+      
+      if (match) {
         horarios.push({
           codigo: String(row[0] || '').trim(),
           curso: String(row[1] || '').trim(),
-          docente: String(row[2] || '').trim(),
+          docente: docHorarioRaw,
           seccion: String(row[3] || '').trim(),
           dia: String(row[4] || '').trim(),
-          horaInicio: String(row[5] || '').trim(),
-          horaFin: String(row[6] || '').trim(),
+          horaInicio: formatHoraCell(row[5]),
+          horaFin: formatHoraCell(row[6]),
           duracionHrs: Number(row[7]) || 0,
           aula: String(row[8] || '').trim(),
           ciclo: String(row[9] || '').trim()
@@ -1512,8 +1565,8 @@ function getClasesProgramadasHoy() {
           docente: String(row[2] || '').trim(),
           seccion: String(row[3] || '').trim(),
           dia: dia,
-          horaInicio: String(row[5] || '').trim(),
-          horaFin: String(row[6] || '').trim(),
+          horaInicio: formatHoraCell(row[5]),
+          horaFin: formatHoraCell(row[6]),
           duracionHrs: Number(row[7]) || 0,
           aula: String(row[8] || '').trim(),
           ciclo: String(row[9] || '').trim()
