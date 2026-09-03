@@ -31,6 +31,7 @@
 const SPREADSHEET_ID = '1gcHH0OVSXem5v9reEpwxehvRdtk5Y-ITy8RKdjQ109U'; // ← Reemplazar con tu ID real
 const HOJA_DOCENTES = 'MAESTRO_DOCENTES';
 const HOJA_DATOS = 'BASE_DE_DATOS';
+const HOJA_HORARIOS = 'HORARIOS';
 
 // ══════════════ UTILIDADES ══════════════
 
@@ -66,6 +67,28 @@ function normalizeDni(val) {
   return unpadded !== '' ? unpadded : str;
 }
 
+/**
+ * Normaliza cualquier formato de fecha a 'yyyy-MM-dd' en zona horaria de Perú
+ */
+function normalizeDateStr(val, tz) {
+  if (!val) return '';
+  const timezone = tz || 'America/Lima';
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, timezone, 'yyyy-MM-dd');
+  }
+  const str = String(val).trim();
+  if (str.indexOf('/') !== -1) {
+    const parts = str.split(/[\/ ]/);
+    if (parts.length >= 3 && parts[0].length <= 2 && parts[2].length === 4) {
+      return parts[2] + '-' + parts[1].padStart(2, '0') + '-' + parts[0].padStart(2, '0');
+    }
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    return str.substring(0, 10);
+  }
+  return str;
+}
+
 // ══════════════ doGet — BUSCAR DOCENTE + ADMIN ENDPOINTS ══════════════
 
 /**
@@ -77,6 +100,8 @@ function normalizeDni(val) {
  *   ?action=monitoreo     → Clases activas hoy (para panel admin)
  *   ?action=estadisticas  → KPIs y datos agregados (para dashboard admin)
  *   ?action=historial_global&semana=X&docente=Y → Todos los registros filtreables
+ *   ?action=obtener_horarios → Todos los horarios del semestre
+ *   ?action=horario_docente&docente=NOMBRE → Horarios de un docente específico
  */
 function doGet(e) {
   try {
@@ -87,7 +112,8 @@ function doGet(e) {
     // ── Acciones ADMIN (no requieren id) ──
     
     if (action === 'monitoreo') {
-      return createJsonResponse({ success: true, data: getMonitoreoActivo() });
+      const fechaParam = (e.parameter.fecha || '').trim();
+      return createJsonResponse({ success: true, data: getMonitoreoActivo(fechaParam) });
     }
     
     if (action === 'estadisticas') {
@@ -114,6 +140,16 @@ function doGet(e) {
 
     if (action === 'lista_docentes') {
       return createJsonResponse({ success: true, data: getListaDocentes() });
+    }
+
+    if (action === 'obtener_horarios') {
+      return createJsonResponse({ success: true, data: getHorariosSemestre() });
+    }
+
+    if (action === 'horario_docente') {
+      const nombreDocente = (e.parameter.docente || '').trim();
+      const dniDocente = (e.parameter.dni || '').trim();
+      return createJsonResponse({ success: true, data: getHorarioDocente(nombreDocente, dniDocente) });
     }
 
     // ── Acciones DOCENTE (requieren id) ──
@@ -269,6 +305,13 @@ function getHistorialPorDni(dni, codigo) {
  * 3. Sin action (compatibilidad) → Registro completo directo con estado COMPLETADO
  */
 function doPost(e) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000); // Esperar hasta 10s para evitar escrituras concurrentes
+  } catch (lockErr) {
+    Logger.log('Lock error: ' + lockErr.message);
+  }
+
   try {
     const payload = JSON.parse(e.postData.contents);
     const actionPost = (payload.action || '').trim().toLowerCase();
@@ -475,21 +518,91 @@ function doPost(e) {
     }
 
     // ══════════════════════════════════════════
-    // FASE 1: INICIO DE CLASE (registro parcial)
+    // ACCIÓN: FORZAR CIERRE DE AULA (DIRECTORA)
+    // Calcula hora de salida = horaInicio + duracionEstimadaMin
     // ══════════════════════════════════════════
-    if (actionPost === 'inicio') {
-      const timestamp = new Date();
-      const timestampStr = Utilities.formatDate(timestamp, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
+    if (actionPost === 'forzar_cierre' || actionPost === 'cerrar_remoto') {
+      const dataExistente = sheet.getDataRange().getValues();
+      const targetDni = String(payload.dni || '').trim().toUpperCase();
+      const targetDniNorm = normalizeDni(targetDni);
+      const targetFecha = String(payload.fecha || '').trim();
+      const targetHoraInicio = String(payload.horaInicio || '').trim();
+      const duracionMin = parseInt(payload.duracionEstimadaMin || 90, 10);
 
+      // Buscar la fila ACTIVA del docente
+      let filaTarget = -1;
+      for (let i = dataExistente.length - 1; i >= 1; i--) {
+        const row = dataExistente[i];
+        const rowDni = String(row[1]).trim().toUpperCase();
+        const rowDniNorm = normalizeDni(rowDni);
+        const rowEstado = String(row[22] || '').trim().toUpperCase();
+        let rowFecha = row[8] instanceof Date
+          ? Utilities.formatDate(row[8], Session.getScriptTimeZone(), 'yyyy-MM-dd')
+          : String(row[8] || '').trim();
+        let rowHoraInicio = row[15] instanceof Date
+          ? Utilities.formatDate(row[15], Session.getScriptTimeZone(), 'HH:mm:ss')
+          : String(row[15] || '').trim();
+
+        const mismoDocente = (rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm));
+        const mismaFecha = (targetFecha === '' || rowFecha === targetFecha);
+        const mismaHora = (targetHoraInicio === '' || rowHoraInicio === targetHoraInicio);
+
+        if (mismoDocente && mismaFecha && mismaHora && rowEstado === 'ACTIVO') {
+          filaTarget = i + 1;
+          break;
+        }
+      }
+
+      if (filaTarget !== -1 && filaTarget <= sheet.getLastRow()) {
+        // Calcular hora de salida = horaInicio + duracionEstimadaMin
+        let horaFinCalculada = '';
+        try {
+          const hParts = targetHoraInicio.split(':');
+          if (hParts.length >= 2) {
+            const startDate = new Date();
+            startDate.setHours(parseInt(hParts[0], 10), parseInt(hParts[1], 10), parseInt(hParts[2] || 0, 10));
+            startDate.setMinutes(startDate.getMinutes() + duracionMin);
+            horaFinCalculada = Utilities.formatDate(startDate, Session.getScriptTimeZone(), 'HH:mm:ss');
+          } else {
+            horaFinCalculada = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'HH:mm:ss');
+          }
+        } catch (e) {
+          horaFinCalculada = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'HH:mm:ss');
+        }
+
+        const obsActual = String(sheet.getRange(filaTarget, 20).getValue() || '');
+        const motivo = payload.motivo || 'Sesión cerrada remotamente por Dirección Académica';
+        const nuevoObs = (obsActual ? obsActual + ' | ' : '') + motivo;
+        
+        sheet.getRange(filaTarget, 17).setValue(horaFinCalculada); // Col Q: HORA FIN (calculada)
+        sheet.getRange(filaTarget, 20).setValue(nuevoObs);         // Col T: OBSERVACIONES
+        sheet.getRange(filaTarget, 23).setValue('COMPLETADO');     // Col W: ESTADO_SESION
+
+        return createJsonResponse({
+          success: true,
+          message: 'Aula liberada. Hora de salida calculada: ' + horaFinCalculada,
+          data: { fila: filaTarget, horaFin: horaFinCalculada }
+        });
+      } else {
+        return createJsonResponse({
+          success: false,
+          message: 'No se encontró la sesión activa a cerrar.'
+        });
+      }
+    }
+
+    // ══════════════════════════════════════════
+    // ACCIÓN: ANULAR INICIO DE CLASE (DOCENTE o DIRECTORA)
+    // Elimina físicamente la fila ACTIVA de Sheets
+    // ══════════════════════════════════════════
+    if (actionPost === 'anular_inicio' || actionPost === 'cancelar_inicio') {
       const dataExistente = sheet.getDataRange().getValues();
       const targetDni = String(payload.dni || '').trim().toUpperCase();
       const targetDniNorm = normalizeDni(targetDni);
       const targetFecha = String(payload.fecha || '').trim();
       const targetAsignatura = String(payload.asignatura || '').trim().toUpperCase();
 
-      // ── ANTI-DUPLICADO MEJORADO ──────────────────────────────────────────────
-      // Bloquear si ya existe una fila ACTIVA del mismo DNI + FECHA + ASIGNATURA.
-      // Ya NO se compara por horaInicio para evitar que doble-clic cree 2 filas.
+      let filaAnular = -1;
       for (let i = dataExistente.length - 1; i >= 1; i--) {
         const row = dataExistente[i];
         const rowDni = String(row[1]).trim().toUpperCase();
@@ -501,17 +614,132 @@ function doPost(e) {
         const rowAsignatura = String(row[9] || '').trim().toUpperCase();
 
         const mismoDocente = (rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm));
-        const mismaFecha = (rowFecha === targetFecha);
+        const mismaFecha = (targetFecha === '' || rowFecha === targetFecha);
         const mismaAsignatura = (targetAsignatura === '' || rowAsignatura === '' || rowAsignatura === targetAsignatura);
 
         if (mismoDocente && mismaFecha && mismaAsignatura && rowEstado === 'ACTIVO') {
-          // Ya hay una sesión activa: devolver éxito sin crear duplicado
+          filaAnular = i + 1;
+          break;
+        }
+      }
+
+      if (filaAnular !== -1) {
+        try {
+          sheet.deleteRow(filaAnular);
+        } catch (e) {
+          // Fallback: marcar como ANULADO si no se puede borrar
+          sheet.getRange(filaAnular, 23).setValue('ANULADO');
+        }
+        return createJsonResponse({
+          success: true,
+          message: 'Inicio de clase anulado y registro eliminado de Sheets.'
+        });
+      } else {
+        return createJsonResponse({
+          success: true,
+          message: 'No se encontró sesión activa que anular o ya fue cerrada.'
+        });
+      }
+    }
+
+    // ══════════════════════════════════════════
+    // ACCIÓN: CARGAR HORARIOS DEL SEMESTRE (DIRECTORA)
+    // Recibe array de registros y reemplaza toda la pestaña HORARIOS
+    // ══════════════════════════════════════════
+    if (actionPost === 'cargar_horarios') {
+      const registros = payload.horarios || [];
+      if (!Array.isArray(registros) || registros.length === 0) {
+        return createJsonResponse({
+          success: false,
+          message: 'No se recibieron registros de horarios.'
+        });
+      }
+
+      const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+      let sheetH = ss.getSheetByName(HOJA_HORARIOS);
+      
+      // Si la pestaña no existe, crearla
+      if (!sheetH) {
+        sheetH = ss.insertSheet(HOJA_HORARIOS);
+      }
+      
+      // Limpiar todo el contenido existente
+      sheetH.clearContents();
+      
+      // Escribir encabezados
+      const headers = ['CODIGO', 'CURSO', 'DOCENTE', 'SECCION', 'DIA', 'HORA_INICIO', 'HORA_FIN', 'DURACION_HRS', 'AULA', 'CICLO'];
+      sheetH.getRange(1, 1, 1, headers.length).setValues([headers]);
+      
+      // Escribir datos en bloque (mucho más rápido que appendRow)
+      if (registros.length > 0) {
+        const rows = registros.map(function(r) {
+          return [
+            r.CODIGO || r.codigo || '',
+            r.CURSO || r.curso || '',
+            r.DOCENTE || r.docente || '',
+            r.SECCION || r.seccion || '',
+            r.DIA || r.dia || '',
+            r.HORA_INICIO || r.horaInicio || '',
+            r.HORA_FIN || r.horaFin || '',
+            r.DURACION_HRS || r.duracionHrs || '',
+            r.AULA || r.aula || '',
+            r.CICLO || r.ciclo || ''
+          ];
+        });
+        sheetH.getRange(2, 1, rows.length, headers.length).setValues(rows);
+      }
+      
+      // Formatear encabezados
+      const headerRange = sheetH.getRange(1, 1, 1, headers.length);
+      headerRange.setFontWeight('bold');
+      headerRange.setBackground('#1a73e8');
+      headerRange.setFontColor('#ffffff');
+      sheetH.setFrozenRows(1);
+      
+      return createJsonResponse({
+        success: true,
+        message: 'Horarios cargados exitosamente: ' + registros.length + ' registros.',
+        data: { totalRegistros: registros.length }
+      });
+    }
+
+    // ══════════════════════════════════════════
+    // FASE 1: INICIO DE CLASE (registro parcial)
+    // ══════════════════════════════════════════
+    if (actionPost === 'inicio') {
+      const tz = 'America/Lima';
+      const timestamp = new Date();
+      const timestampStr = Utilities.formatDate(timestamp, tz, 'dd/MM/yyyy HH:mm:ss');
+
+      const dataExistente = sheet.getDataRange().getValues();
+      const targetDni = String(payload.dni || '').trim().toUpperCase();
+      const targetDniNorm = normalizeDni(targetDni);
+      const targetFecha = String(payload.fecha || normalizeDateStr(timestamp, tz)).trim();
+      const targetAsignatura = String(payload.asignatura || '').trim().toUpperCase();
+      const targetHoraInicio = String(payload.horaInicio || Utilities.formatDate(timestamp, tz, 'HH:mm:ss')).trim();
+      const duracionMin = parseInt(payload.duracionEstimadaMin || 90, 10);
+      const obsInicial = '[Duración: ' + duracionMin + ' min]';
+
+      // ── ANTI-DUPLICADO: Si el docente YA tiene una sesión ACTIVA hoy, no crear duplicado ──
+      for (let i = dataExistente.length - 1; i >= 1; i--) {
+        const row = dataExistente[i];
+        const rowDni = String(row[1]).trim().toUpperCase();
+        const rowDniNorm = normalizeDni(rowDni);
+        const rowEstado = String(row[22] || '').trim().toUpperCase();
+        let rowFecha = normalizeDateStr(row[8], tz);
+        let rowHoraInicio = row[15] instanceof Date
+          ? Utilities.formatDate(row[15], tz, 'HH:mm:ss')
+          : String(row[15] || '').trim();
+
+        const mismoDocente = (rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm));
+        const mismaFecha = (rowFecha === targetFecha);
+
+        if (mismoDocente && mismaFecha && rowEstado === 'ACTIVO') {
+          // Ya hay una sesión activa registrada para este docente hoy: no duplicar
           return createJsonResponse({
             success: true,
             message: 'La sesión de inicio ya fue registrada previamente.',
-            horaInicio: row[15] instanceof Date
-              ? Utilities.formatDate(row[15], Session.getScriptTimeZone(), 'HH:mm:ss')
-              : String(row[15] || ''),
+            horaInicio: rowHoraInicio,
           });
         }
       }
@@ -526,18 +754,18 @@ function doPost(e) {
         payload.carrera || '',                 // F: CARRERA
         payload.numero || '',                  // G: N°
         payload.aulaLab || '',                 // H: AULA/LAB
-        payload.fecha || '',                   // I: FECHA
+        targetFecha,                           // I: FECHA
         payload.asignatura || '',              // J: ASIGNATURA
         payload.seccion || '',                 // K: SECCIÓN
         payload.unidad || '',                  // L: UNIDAD
         payload.semanaAcademica || '',         // M: SEMANA
         '',                                    // N: TEMA (se llena al cierre)
         '',                                    // O: RECURSOS (se llena al cierre)
-        payload.horaInicio || '',              // P: HORA INICIO
+        targetHoraInicio,                      // P: HORA INICIO
         '',                                    // Q: HORA FIN (se llena al cierre)
         '',                                    // R: N° ESTUDIANTES (se llena al cierre)
         'PENDIENTE',                           // S: VALIDACIÓN
-        '',                                    // T: OBSERVACIONES
+        obsInicial,                            // T: OBSERVACIONES (duración estimada)
         payload.tipo_sesion || 'Clase Regular',// U: TIPO DE SESIÓN
         payload.fecha_recuperar || '',         // V: FECHA A RECUPERAR
         'ACTIVO',                              // W: ESTADO_SESION ← ACTIVO
@@ -799,6 +1027,10 @@ function doPost(e) {
       success: false,
       message: 'Error al registrar la sesión: ' + error.message,
     });
+  } finally {
+    try {
+      lock.releaseLock();
+    } catch (e) {}
   }
 }
 
@@ -808,51 +1040,57 @@ function doPost(e) {
  * Devuelve las clases activas y completadas de HOY para el Panel de Monitoreo
  * Incluye lista de docentes registrados como referencia
  */
-function getMonitoreoActivo() {
+function getMonitoreoActivo(fechaFiltro) {
   const sheetBD = getSheet(HOJA_DATOS);
   const dataBD = sheetBD.getDataRange().getValues();
   const sheetDoc = getSheet(HOJA_DOCENTES);
   const dataDoc = sheetDoc.getDataRange().getValues();
   
-  const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const tz = 'America/Lima';
+  const hoy = (fechaFiltro && String(fechaFiltro).trim() !== '')
+    ? String(fechaFiltro).trim()
+    : Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
   
   const activas = [];
   const completadasHoy = [];
+  const docentesActivosVistos = {};
+  const filasDuplicadasBorrar = [];
   
-  for (let i = 1; i < dataBD.length; i++) {
+  // Iterar de la fila más reciente a la más antigua para conservar la última
+  for (let i = dataBD.length - 1; i >= 1; i--) {
     const row = dataBD[i];
     
-    // Obtener fecha de la columna I (FECHA)
-    let fechaStr = row[8] instanceof Date
-      ? Utilities.formatDate(row[8], Session.getScriptTimeZone(), 'yyyy-MM-dd')
-      : String(row[8] || '').trim();
+    // Obtener fecha normalizada (yyyy-MM-dd)
+    let fechaStr = normalizeDateStr(row[8], tz);
     
     // FALLBACK: Si la columna FECHA está vacía, usar el TIMESTAMP (columna A)
     if (!fechaStr && row[0]) {
-      let tsStr = row[0] instanceof Date
-        ? Utilities.formatDate(row[0], Session.getScriptTimeZone(), 'yyyy-MM-dd')
-        : String(row[0] || '');
-      // Si el timestamp tiene formato dd/MM/yyyy, convertir
-      if (tsStr.indexOf('/') !== -1) {
-        var parts = tsStr.split(/[\/ ]/);
-        if (parts.length >= 3 && parts[0].length <= 2) {
-          tsStr = parts[2] + '-' + parts[1].padStart(2, '0') + '-' + parts[0].padStart(2, '0');
-        }
-      }
-      fechaStr = tsStr;
+      fechaStr = normalizeDateStr(row[0], tz);
     }
     
-    if (fechaStr !== hoy) continue;
-    
     const estado = String(row[22] || '').trim().toUpperCase();
+    const horaInicioRaw = row[15] instanceof Date
+      ? Utilities.formatDate(row[15], tz, 'HH:mm:ss')
+      : String(row[15] || '').trim();
     const horaFinRaw = row[16] instanceof Date
-      ? Utilities.formatDate(row[16], Session.getScriptTimeZone(), 'HH:mm:ss')
+      ? Utilities.formatDate(row[16], tz, 'HH:mm:ss')
       : String(row[16] || '').trim();
     
-    // Determinar si la sesión está realmente activa:
-    // 1. Si ESTADO_SESION es explícitamente ACTIVO, O
-    // 2. Si no tiene hora de fin (la clase no ha cerrado aún)
-    const esActiva = estado === 'ACTIVO' || (!horaFinRaw && String(row[15] || '').trim() !== '');
+    // Determinar si la sesión está activa:
+    // 1. Si ESTADO_SESION es explícitamente ACTIVO
+    // 2. Si tiene horaInicio pero no tiene horaFin y no está ANULADO ni COMPLETADO
+    const esActiva = (estado === 'ACTIVO') || (estado !== 'COMPLETADO' && estado !== 'ANULADO' && !horaFinRaw && horaInicioRaw !== '');
+    
+    // Si NO es activa Y la fecha no coincide con hoy, saltar
+    if (!esActiva && fechaStr !== hoy) continue;
+
+    // Extraer duración estimada de observaciones si existe
+    const obsStr = String(row[19] || '');
+    let duracionEstimadaMin = 90;
+    const durMatch = obsStr.match(/\[Duración:\s*(\d+)\s*min\]/i) || obsStr.match(/(\d+)\s*min/i);
+    if (durMatch) {
+      duracionEstimadaMin = parseInt(durMatch[1], 10);
+    }
     
     const sesion = {
       fila: i + 1,
@@ -860,20 +1098,39 @@ function getMonitoreoActivo() {
       docente: String(row[2] || ''),
       aula: String(row[7] || ''),
       asignatura: String(row[9] || ''),
-      horaInicio: row[15] instanceof Date
-        ? Utilities.formatDate(row[15], Session.getScriptTimeZone(), 'HH:mm:ss')
-        : String(row[15] || ''),
+      fecha: fechaStr || hoy,
+      horaInicio: horaInicioRaw,
       horaFin: horaFinRaw,
+      duracionEstimadaMin: duracionEstimadaMin,
       numEstudiantes: String(row[17] || ''),
       tema: String(row[13] || ''),
       estado: esActiva ? 'ACTIVO' : (estado || 'COMPLETADO'),
+      observaciones: obsStr,
     };
     
     if (esActiva) {
-      activas.push(sesion);
+      const keyDocente = normalizeDni(sesion.dni) || sesion.docente.trim().toUpperCase();
+      if (keyDocente && docentesActivosVistos[keyDocente]) {
+        // Duplicado encontrado: marcar para eliminar físicamente de Sheets
+        filasDuplicadasBorrar.push(i + 1);
+      } else {
+        if (keyDocente) docentesActivosVistos[keyDocente] = true;
+        activas.push(sesion);
+      }
     } else {
       completadasHoy.push(sesion);
     }
+  }
+
+  // Eliminar físicamente filas duplicadas activas de Sheets (en orden descendente para no alterar índices)
+  if (filasDuplicadasBorrar.length > 0) {
+    filasDuplicadasBorrar.sort(function(a, b) { return b - a; }).forEach(function(rIdx) {
+      try {
+        sheetBD.deleteRow(rIdx);
+      } catch (e) {
+        try { sheetBD.getRange(rIdx, 23).setValue('COMPLETADO'); } catch (err) {}
+      }
+    });
   }
   
   // Lista de todos los docentes para detectar ausentes
@@ -888,11 +1145,20 @@ function getMonitoreoActivo() {
     });
   }
   
+  // Obtener clases programadas para hoy desde HORARIOS
+  let clasesProgramadasHoy = [];
+  try {
+    clasesProgramadasHoy = getClasesProgramadasHoy();
+  } catch (err) {
+    Logger.log('No se pudieron obtener clases programadas: ' + err.message);
+  }
+  
   return {
     fecha: hoy,
     activas: activas,
     completadasHoy: completadasHoy,
     todosDocentes: todosDocentes,
+    clasesProgramadas: clasesProgramadasHoy,
   };
 }
 
@@ -1093,6 +1359,173 @@ function getListaDocentes() {
   }
 
   return docentes;
+}
+
+// ══════════════ FUNCIONES HORARIOS ══════════════
+
+/**
+ * Devuelve todos los horarios del semestre cargados en la pestaña HORARIOS
+ */
+function getHorariosSemestre() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(HOJA_HORARIOS);
+    if (!sheet) return { horarios: [], mensaje: 'La pestaña HORARIOS no existe. Cárgala desde el panel.' };
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return { horarios: [], mensaje: 'No hay horarios cargados aún.' };
+
+    const horarios = [];
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (!row[0] && !row[1]) continue; // Fila vacía
+      horarios.push({
+        codigo: String(row[0] || '').trim(),
+        curso: String(row[1] || '').trim(),
+        docente: String(row[2] || '').trim(),
+        seccion: String(row[3] || '').trim(),
+        dia: String(row[4] || '').trim(),
+        horaInicio: String(row[5] || '').trim(),
+        horaFin: String(row[6] || '').trim(),
+        duracionHrs: Number(row[7]) || 0,
+        aula: String(row[8] || '').trim(),
+        ciclo: String(row[9] || '').trim()
+      });
+    }
+
+    return {
+      horarios: horarios,
+      totalRegistros: horarios.length,
+      mensaje: 'OK'
+    };
+  } catch (err) {
+    return { horarios: [], mensaje: 'Error: ' + err.message };
+  }
+}
+
+/**
+ * Devuelve los horarios de un docente específico.
+ * Busca por nombre completo en HORARIOS o resuelve DNI→nombre via MAESTRO_DOCENTES.
+ */
+function getHorarioDocente(nombreDocente, dniDocente) {
+  try {
+    // Si se proporciona DNI, resolver a nombre desde MAESTRO_DOCENTES
+    let nombreBuscar = nombreDocente.toUpperCase();
+    
+    if (dniDocente && !nombreDocente) {
+      const sheetDoc = getSheet(HOJA_DOCENTES);
+      const dataDoc = sheetDoc.getDataRange().getValues();
+      const dniNorm = normalizeDni(dniDocente);
+      
+      for (let i = 1; i < dataDoc.length; i++) {
+        const rowDni = normalizeDni(String(dataDoc[i][0] || ''));
+        const rowCod = normalizeDni(String(dataDoc[i][1] || ''));
+        if (rowDni === dniNorm || rowCod === dniNorm) {
+          nombreBuscar = String(dataDoc[i][2] || '').trim().toUpperCase();
+          break;
+        }
+      }
+    }
+
+    if (!nombreBuscar) {
+      return { horarios: [], mensaje: 'Debe proporcionar nombre o DNI del docente.' };
+    }
+
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(HOJA_HORARIOS);
+    if (!sheet) return { horarios: [], mensaje: 'La pestaña HORARIOS no existe.' };
+
+    const data = sheet.getDataRange().getValues();
+    const horarios = [];
+    
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const docHorario = String(row[2] || '').trim().toUpperCase();
+      
+      // Coincidencia exacta o parcial (el nombre en HORARIOS puede tener formato ligeramente diferente)
+      if (docHorario === nombreBuscar || 
+          docHorario.indexOf(nombreBuscar) !== -1 || 
+          nombreBuscar.indexOf(docHorario) !== -1) {
+        horarios.push({
+          codigo: String(row[0] || '').trim(),
+          curso: String(row[1] || '').trim(),
+          docente: String(row[2] || '').trim(),
+          seccion: String(row[3] || '').trim(),
+          dia: String(row[4] || '').trim(),
+          horaInicio: String(row[5] || '').trim(),
+          horaFin: String(row[6] || '').trim(),
+          duracionHrs: Number(row[7]) || 0,
+          aula: String(row[8] || '').trim(),
+          ciclo: String(row[9] || '').trim()
+        });
+      }
+    }
+
+    return {
+      horarios: horarios,
+      docente: nombreBuscar,
+      totalClasesSemana: horarios.length,
+      mensaje: 'OK'
+    };
+  } catch (err) {
+    return { horarios: [], mensaje: 'Error: ' + err.message };
+  }
+}
+
+/**
+ * Obtiene las clases programadas para HOY de todos los docentes (para monitoreo).
+ * Usado internamente por getMonitoreoActivo.
+ */
+function getClasesProgramadasHoy() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(HOJA_HORARIOS);
+    if (!sheet) return [];
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return [];
+
+    // Obtener día de la semana en español
+    const tz = 'America/Lima';
+    const ahora = new Date();
+    const diasMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sabado'];
+    const diaHoy = diasMap[parseInt(Utilities.formatDate(ahora, tz, 'u')) % 7];
+    // Utilities.formatDate con 'u' da 1=Lunes...7=Domingo en ISO
+    // Fallback: usar getDay del Date
+    const diaJS = ahora.getDay(); // 0=Domingo, 1=Lunes...
+    const diasMapJS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sabado'];
+    const diaHoyFinal = diasMapJS[diaJS];
+
+    const clasesHoy = [];
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const dia = String(row[4] || '').trim();
+      
+      // Normalizar comparación de día (quitar tildes para Miércoles/Sábado)
+      const diaNorm = dia.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const hoyNorm = diaHoyFinal.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      
+      if (diaNorm === hoyNorm) {
+        clasesHoy.push({
+          codigo: String(row[0] || '').trim(),
+          curso: String(row[1] || '').trim(),
+          docente: String(row[2] || '').trim(),
+          seccion: String(row[3] || '').trim(),
+          dia: dia,
+          horaInicio: String(row[5] || '').trim(),
+          horaFin: String(row[6] || '').trim(),
+          duracionHrs: Number(row[7]) || 0,
+          aula: String(row[8] || '').trim(),
+          ciclo: String(row[9] || '').trim()
+        });
+      }
+    }
+
+    return clasesHoy;
+  } catch (err) {
+    Logger.log('Error al obtener clases programadas hoy: ' + err.message);
+    return [];
+  }
 }
 
 // ══════════════ FUNCIÓN DE PRUEBA ══════════════

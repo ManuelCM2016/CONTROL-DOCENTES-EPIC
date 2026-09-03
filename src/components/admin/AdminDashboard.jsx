@@ -21,6 +21,7 @@ import MonitoreoView from './MonitoreoView'
 import DashboardView from './DashboardView'
 import HistorialGlobalView from './HistorialGlobalView'
 import DocentesView from './DocentesView'
+import HorariosView from './HorariosView'
 
 const NAV_ITEMS = [
   {
@@ -51,6 +52,13 @@ const NAV_ITEMS = [
     subtitle: 'Plana oficial y asignaturas',
     icon: GraduationCap,
     color: 'purple'
+  },
+  {
+    id: 'horarios',
+    label: 'Horarios del Semestre',
+    subtitle: 'Carga y gestión académica',
+    icon: Calendar,
+    color: 'amber'
   }
 ]
 
@@ -339,6 +347,9 @@ const AdminDashboard = ({
               )}
               {currentSection === 'docentes' && (
                 <DocentesView isDarkMode={isDarkMode} />
+              )}
+              {currentSection === 'horarios' && (
+                <HorariosView isDarkMode={isDarkMode} />
               )}
             </motion.div>
           </AnimatePresence>
