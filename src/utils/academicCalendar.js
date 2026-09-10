@@ -88,7 +88,10 @@ export const guardarNumeroRegistroCompletado = (dniDocente, numRegistrado) => {
   try {
     const key = `upt_registro_num_${dniDocente || 'global'}`
     const num = parseInt(numRegistrado, 10) || 1
-    localStorage.setItem(key, String(num))
+    const current = parseInt(localStorage.getItem(key), 10) || 0
+    if (num >= current) {
+      localStorage.setItem(key, String(num))
+    }
   } catch (e) {
     console.warn('Error guardando correlativo de registro:', e)
   }

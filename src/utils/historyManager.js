@@ -131,6 +131,19 @@ export const mergeHistoryFromCloud = (docenteDni, cloudSessions = []) => {
     // Convertir a array y ordenar por fecha descendente
     const mergedList = Array.from(mergedMap.values()).slice(0, 100)
     localStorage.setItem(getHistoryKey(docenteDni), JSON.stringify(mergedList))
+
+    // Actualizar el número correlativo máximo conocido para este docente
+    const maxNum = Math.max(
+      0,
+      ...mergedList.map(s => parseInt(s.numero, 10)).filter(n => !isNaN(n))
+    )
+    if (maxNum > 0) {
+      const current = parseInt(localStorage.getItem(`upt_registro_num_${docenteDni}`), 10) || 0
+      if (maxNum > current) {
+        localStorage.setItem(`upt_registro_num_${docenteDni}`, String(maxNum))
+      }
+    }
+
     return mergedList
   } catch (error) {
     console.warn('Error al fusionar historial de la nube:', error)

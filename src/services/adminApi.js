@@ -280,3 +280,22 @@ export const cargarHorariosSemestre = async (horarios) => {
     return { success: false, message: error.message }
   }
 }
+
+// ──────────────────────────────────────────────────
+// REGISTRAR SESIÓN MANUAL (POST action=crear_sesion_manual)
+// Permite a la Directora ingresar sesiones físicas / de papel (Anexo C)
+// ──────────────────────────────────────────────────
+export const crearSesionManualAdmin = async (payload) => {
+  if (!GOOGLE_SCRIPT_URL) return { success: true, message: 'Mock: sesión manual registrada.' }
+  try {
+    const response = await fetchGAS(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, action: 'crear_sesion_manual' }),
+    })
+    const text = await response.text()
+    return JSON.parse(text)
+  } catch (error) {
+    console.error('Error al registrar sesión manual:', error)
+    return { success: false, message: error.message }
+  }
+}

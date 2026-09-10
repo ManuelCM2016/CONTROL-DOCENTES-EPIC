@@ -461,6 +461,82 @@ function doPost(e) {
     }
 
     // ══════════════════════════════════════════
+    // ACCIÓN: REGISTRAR SESIÓN MANUAL (DIRECTORA - ANEXO C FÍSICO)
+    // ══════════════════════════════════════════
+    if (actionPost === 'crear_sesion_manual') {
+      const sheet = getSheet(HOJA_DATOS);
+      const recursosText = Array.isArray(payload.recursos)
+        ? payload.recursos.join(', ')
+        : String(payload.recursos || '');
+
+      const timestamp = new Date();
+      const timestampStr = Utilities.formatDate(timestamp, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
+
+      const newRow = [
+        timestampStr,                                                // A: TIMESTAMP
+        payload.dni || '',                                          // B: DNI
+        payload.docente || '',                                      // C: DOCENTE
+        payload.facultad || '',                                     // D: FACULTAD
+        payload.escuela || '',                                      // E: ESCUELA
+        payload.carrera || '',                                      // F: CARRERA
+        payload.numero || '',                                       // G: N°
+        payload.aulaLab || payload.aula || '',                      // H: AULA/LAB
+        payload.fecha || '',                                        // I: FECHA
+        payload.asignatura || '',                                   // J: ASIGNATURA
+        payload.seccion || '',                                      // K: SECCIÓN
+        payload.unidad || '',                                       // L: UNIDAD
+        payload.semanaAcademica || payload.semana || '',            // M: SEMANA
+        payload.temaProgramado || payload.tema || '',               // N: TEMA PROGRAMADO
+        recursosText,                                               // O: RECURSOS
+        payload.horaInicio || '',                                   // P: HORA INICIO
+        payload.horaFinalizacion || payload.horaFin || '',          // Q: HORA FIN
+        payload.numEstudiantes || '',                               // R: N° ESTUDIANTES
+        payload.validacion || 'VÁLIDO',                             // S: VALIDACIÓN
+        payload.observaciones || '',                                // T: OBSERVACIONES
+        payload.tipo_sesion || payload.tipoSesion || 'Clase Regular', // U: TIPO DE SESIÓN
+        payload.fecha_recuperar || payload.fechaRecuperar || '',      // V: FECHA RECUPERAR
+        'COMPLETADO',                                               // W: ESTADO_SESION
+      ];
+
+      // Control anti-duplicados estricto (mismo docente, fecha y hora de inicio)
+      const dataExistente = sheet.getDataRange().getValues();
+      const targetDni = String(payload.dni || '').trim().toUpperCase();
+      const targetDniNorm = normalizeDni(targetDni);
+      const targetFecha = String(payload.fecha || '').trim();
+      const targetHoraInicio = String(payload.horaInicio || '').trim();
+
+      for (let i = dataExistente.length - 1; i >= 1; i--) {
+        const row = dataExistente[i];
+        const rowDni = String(row[1]).trim().toUpperCase();
+        const rowDniNorm = normalizeDni(rowDni);
+        let rowFecha = row[8] instanceof Date
+          ? Utilities.formatDate(row[8], Session.getScriptTimeZone(), 'yyyy-MM-dd')
+          : String(row[8] || '').trim();
+        let rowHoraInicio = row[15] instanceof Date
+          ? Utilities.formatDate(row[15], Session.getScriptTimeZone(), 'HH:mm:ss')
+          : String(row[15] || '').trim();
+
+        if (
+          (rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm)) &&
+          rowFecha === targetFecha &&
+          rowHoraInicio === targetHoraInicio
+        ) {
+          return createJsonResponse({
+            success: false,
+            message: 'Ya existe una sesión registrada para este docente en la fecha ' + targetFecha + ' a las ' + targetHoraInicio + '.',
+          });
+        }
+      }
+
+      sheet.appendRow(newRow);
+
+      return createJsonResponse({
+        success: true,
+        message: 'Sesión física / manual registrada exitosamente.',
+      });
+    }
+
+    // ══════════════════════════════════════════
     // ACCIÓN: EDITAR O AGREGAR DOCENTE (DIRECTORA)
     // ══════════════════════════════════════════
     if (actionPost === 'editar_docente' || actionPost === 'guardar_docente') {
