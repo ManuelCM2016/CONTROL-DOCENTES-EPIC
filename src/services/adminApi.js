@@ -299,3 +299,17 @@ export const crearSesionManualAdmin = async (payload) => {
     return { success: false, message: error.message }
   }
 }
+
+
+// ──────────────────────────────────────────────────
+// GESTIÓN DE RESERVAS DE SALONES / LABORATORIOS
+// Re-exporta el servicio especializado de reservas
+// ──────────────────────────────────────────────────
+export {
+  obtenerReservas,
+  crearReserva,
+  actualizarEstadoReserva,
+  eliminarReserva,
+  verificarDisponibilidadAmbiente,
+  AULAS_LABORATORIOS_MASTER
+} from './reservasService'

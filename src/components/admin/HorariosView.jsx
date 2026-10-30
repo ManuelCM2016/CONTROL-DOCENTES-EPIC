@@ -23,7 +23,8 @@ import {
   Building2,
   DoorOpen
 } from 'lucide-react'
-import { obtenerHorarios, cargarHorariosSemestre } from '../../services/adminApi'
+import { obtenerHorarios, cargarHorariosSemestre, obtenerReservas } from '../../services/adminApi'
+import { getDiaSemanaFromDate } from '../../services/reservasService'
 import * as XLSX from 'xlsx'
 
 // ── Constantes ──
@@ -43,6 +44,7 @@ const CICLO_COLORS = {
   '8':  { bg: 'rgba(34,197,94,0.18)',   border: 'rgba(34,197,94,0.4)',   text: '#86efac', dot: '#22c55e' },
   '9':  { bg: 'rgba(244,114,182,0.18)', border: 'rgba(244,114,182,0.4)', text: '#f9a8d4', dot: '#f472b6' },
   '10': { bg: 'rgba(251,146,60,0.18)',  border: 'rgba(251,146,60,0.4)',  text: '#fdba74', dot: '#fb923c' },
+  'RES': { bg: 'rgba(16,185,129,0.25)', border: 'rgba(52,211,153,0.7)', text: '#6ee7b7', dot: '#10b981' },
 }
 
 const getColor = (ciclo) => CICLO_COLORS[ciclo] || CICLO_COLORS['1']
@@ -116,19 +118,27 @@ function parseExcelCiclos(workbook) {
 // ═══════════════════════════════════════════════════════
 const ClaseCell = ({ clase, rowSpan, cellHeight, isCompact = false, showAula = true }) => {
   const color = getColor(clase.ciclo)
+  const isReserva = Boolean(clase.esReserva)
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.85 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
       whileHover={{ scale: 1.04, zIndex: 30 }}
-      className="absolute inset-0.5 rounded-xl cursor-pointer overflow-hidden group shadow-md"
+      className={`absolute inset-0.5 rounded-xl cursor-pointer overflow-hidden group shadow-md ${
+        isReserva ? 'ring-1 ring-emerald-400/50' : ''
+      }`}
       style={{
-        background: color.bg,
-        border: `1.5px solid ${color.border}`,
+        background: isReserva ? 'linear-gradient(135deg, rgba(16,185,129,0.28) 0%, rgba(5,150,105,0.38) 100%)' : color.bg,
+        border: `1.5px ${isReserva ? 'dashed' : 'solid'} ${isReserva ? 'rgba(52,211,153,0.85)' : color.border}`,
         height: `${cellHeight}px`,
       }}
-      title={`${clase.curso}\nDocente: ${clase.docente}\nAula: ${clase.aula} | Sec: ${clase.seccion || 'A'}\nHorario: ${clase.horaInicio} – ${clase.horaFin} (${clase.duracionHrs}h)\nCiclo: ${clase.ciclo}`}
+      title={
+        isReserva
+          ? `[RESERVA APROBADA]\nMotivo: ${clase.reservaData?.motivo || clase.curso}\nDocente: ${clase.docente}\nAula: ${clase.aula}\nHorario: ${clase.horaInicio} – ${clase.horaFin} (${clase.duracionHrs}h)\nTipo: ${clase.seccion}`
+          : `${clase.curso}\nDocente: ${clase.docente}\nAula: ${clase.aula} | Sec: ${clase.seccion || 'A'}\nHorario: ${clase.horaInicio} – ${clase.horaFin} (${clase.duracionHrs}h)\nCiclo: ${clase.ciclo}`
+      }
     >
       {/* Glow effect on hover */}
       <div
@@ -137,40 +147,40 @@ const ClaseCell = ({ clase, rowSpan, cellHeight, isCompact = false, showAula = t
       />
 
       <div className={`relative ${isCompact ? 'p-1.5' : 'p-2'} h-full flex flex-col justify-between text-left`}>
-        {/* Hora */}
+        {/* Hora y Tipo */}
         <div className="flex items-center justify-between gap-1">
           <span className={`${isCompact ? 'text-[9px]' : 'text-[10px]'} font-black tracking-wide truncate`} style={{ color: color.text }}>
             {clase.horaInicio} ~ {clase.horaFin}
           </span>
-          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: color.border, color: '#fff' }}>
-            {clase.duracionHrs}h
+          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: isReserva ? 'rgba(16,185,129,0.6)' : color.border, color: '#fff' }}>
+            {isReserva ? 'RESERVA' : `${clase.duracionHrs}h`}
           </span>
         </div>
 
         {/* Curso */}
-        <p className={`${isCompact ? 'text-[10px]' : 'text-[11px]'} font-black text-white leading-tight mt-1 line-clamp-2`}>
+        <p className={`${isCompact ? 'text-[10px]' : 'text-[11px]'} font-black leading-tight mt-1 line-clamp-2 ${isReserva ? 'text-emerald-200' : 'text-white'}`}>
           {clase.curso}
         </p>
 
         {/* Docente */}
         <p className="text-[9px] text-white/60 font-medium leading-tight mt-0.5 line-clamp-1">
-          {clase.docente}
+          👤 {clase.docente}
         </p>
 
         {/* Aula / Ciclo + Sección */}
         <div className="flex items-center justify-between mt-auto pt-1 gap-1">
           <span className="text-[9px] font-black truncate" style={{ color: color.text }}>
-            {showAula ? clase.aula : `Ciclo ${clase.ciclo}`}
+            {isReserva ? `🏛️ ${clase.aula}` : (showAula ? clase.aula : `Ciclo ${clase.ciclo}`)}
           </span>
           <div className="flex items-center gap-1 shrink-0">
-            {!showAula && (
+            {!showAula && !isReserva && (
               <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-amber-400/20 text-amber-300">
                 {clase.aula}
               </span>
             )}
             {clase.seccion && (
-              <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-white/10 text-white/70">
-                Sec. {clase.seccion}
+              <span className={`text-[8px] font-bold px-1 py-0.5 rounded ${isReserva ? 'bg-emerald-500/25 text-emerald-300' : 'bg-white/10 text-white/70'}`}>
+                {clase.seccion}
               </span>
             )}
           </div>
@@ -197,18 +207,54 @@ const HorariosView = ({ isDarkMode }) => {
   const [uploadResult, setUploadResult] = useState(null)
   const fileInputRef = useRef(null)
 
-  // ── Cargar horarios ──
+  // ── Cargar horarios y reservas aprobadas ──
   const cargarHorariosExistentes = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await obtenerHorarios()
-      if (res.success && res.data) {
-        setHorarios(res.data.horarios || [])
-        setMensaje(res.data.mensaje || '')
-      } else {
-        setHorarios([])
-        setMensaje(res.message || 'Error al cargar horarios')
+      const [resH, resR] = await Promise.allSettled([
+        obtenerHorarios(),
+        obtenerReservas()
+      ])
+
+      let items = []
+      let msg = ''
+
+      if (resH.status === 'fulfilled' && resH.value?.success && resH.value.data) {
+        items = [...(resH.value.data.horarios || [])]
+        msg = resH.value.data.mensaje || ''
       }
+
+      // Requerimiento: En el módulo 'Horario de Semestre' se visualizan las reservas realizadas (aprobadas)
+      if (resR.status === 'fulfilled' && resR.value?.success && Array.isArray(resR.value.data)) {
+        const reservasAprobadas = resR.value.data.filter(r => r.estado === 'APROBADA')
+        const itemsReservas = reservasAprobadas.map(r => {
+          const diaSemana = r.tipoReserva === 'RECURRENTE' ? r.diaSemana : getDiaSemanaFromDate(r.fecha)
+          const iniMin = horaToMinutos(r.horaInicio)
+          const finMin = horaToMinutos(r.horaFin)
+          const duracion = parseFloat(((finMin - iniMin) / 60).toFixed(1)) || 2
+
+          return {
+            codigo: 'RESERVA',
+            curso: `📌 [RESERVA] ${r.motivo || 'Uso de Ambiente'}`,
+            docente: r.docenteNombre,
+            seccion: r.tipoReserva === 'RECURRENTE' 
+              ? (r.fechaInicio ? `Recurrente (${r.fechaInicio} ~ ${r.fechaFin})` : `Recurrente (Sem. ${r.semanaInicio}-${r.semanaFin})`) 
+              : `Fecha: ${r.fecha}`,
+            dia: diaSemana,
+            horaInicio: r.horaInicio,
+            horaFin: r.horaFin,
+            duracionHrs: duracion,
+            aula: r.aula,
+            ciclo: 'RES',
+            esReserva: true,
+            reservaData: r
+          }
+        })
+        items = [...items, ...itemsReservas]
+      }
+
+      setHorarios(items)
+      setMensaje(msg)
     } catch (err) {
       setMensaje('Error de conexión: ' + err.message)
     } finally {
@@ -216,7 +262,12 @@ const HorariosView = ({ isDarkMode }) => {
     }
   }, [])
 
-  useEffect(() => { cargarHorariosExistentes() }, [cargarHorariosExistentes])
+  useEffect(() => {
+    cargarHorariosExistentes()
+    const handleUpdate = () => cargarHorariosExistentes()
+    window.addEventListener('epic_reservas_updated', handleUpdate)
+    return () => window.removeEventListener('epic_reservas_updated', handleUpdate)
+  }, [cargarHorariosExistentes])
 
   // ── Manejar archivo ──
   const handleFileSelect = (e) => {
@@ -293,12 +344,15 @@ const HorariosView = ({ isDarkMode }) => {
     const listaAulas = [...new Set(horarios.map(h => (h.aula || '').trim()).filter(Boolean))].sort((a, b) =>
       a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
     )
+    const totalReservas = horarios.filter(h => h.esReserva).length
     return {
       total: horarios.length,
+      totalReservas,
+      clasesOficiales: horarios.length - totalReservas,
       docentes: new Set(horarios.map(h => h.docente)).size,
-      cursos: new Set(horarios.map(h => h.codigo)).size,
+      cursos: new Set(horarios.filter(h => !h.esReserva).map(h => h.codigo)).size,
       aulas: new Set(horarios.map(h => h.aula)).size,
-      ciclos: [...new Set(horarios.map(h => h.ciclo))].sort((a, b) => Number(a) - Number(b)),
+      ciclos: [...new Set(horarios.map(h => h.ciclo))].filter(c => c && c !== 'RES').sort((a, b) => Number(a) - Number(b)),
       listaAulas,
     }
   }, [horarios])
@@ -354,7 +408,11 @@ const HorariosView = ({ isDarkMode }) => {
             <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
           </h2>
           <p className="text-xs text-white/40 mt-1">
-            Gestión de horarios académicos • {horarios.length > 0 ? `${horarios.length} registros` : 'Sin horarios'}
+            Gestión de horarios académicos • {horarios.length > 0 ? (
+              stats.totalReservas > 0 
+                ? `${stats.clasesOficiales} clases oficiales + ${stats.totalReservas} reservas aprobadas`
+                : `${horarios.length} registros`
+            ) : 'Sin horarios'}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -714,7 +772,7 @@ const HorariosView = ({ isDarkMode }) => {
                       className="hover:bg-white/[0.03] transition-colors">
                       <td className="px-3 py-2.5">
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-black" style={{ background: color.bg, border: `1px solid ${color.border}`, color: color.text }}>
-                          {h.ciclo}
+                          {h.esReserva ? 'RESERVA' : `Ciclo ${h.ciclo}`}
                         </span>
                       </td>
                       <td className="px-3 py-2.5 text-white/70 font-mono">{h.codigo}</td>

@@ -7,13 +7,15 @@ import {
   StopCircle, ClipboardCheck, Hash, User, Send, Loader2, CheckCircle2,
   Bell, Timer, BellRing, Sun, Moon, Sparkles, Check, ChevronRight,
   Info, Plus, Minus, RotateCcw, RefreshCw, CalendarClock, ShieldCheck,
-  History, Wifi, WifiOff, PlusCircle, AlertTriangle, XCircle, ArrowLeft
+  History, Wifi, WifiOff, PlusCircle, AlertTriangle, XCircle, ArrowLeft, DoorOpen, X
 } from 'lucide-react'
 import DigitalClock from './DigitalClock'
 import StartSessionModal from './StartSessionModal'
 import SuccessModal from './SuccessModal'
 import OnboardingTour from './OnboardingTour'
 import TeacherHistoryModal from './TeacherHistoryModal'
+import DocenteReservaModal from './DocenteReservaModal'
+import { getLocalReservas } from '../services/reservasService'
 import { registrarSesion } from '../services/api'
 import { registrarInicioClase, registrarCierreClase, anularInicioClase, obtenerHorarioDocente } from '../services/adminApi'
 import { playAlertSound } from '../utils/alertSound'
@@ -388,6 +390,41 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       }
     }
   }, [docente?.cursos, formData.asignatura, formData.seccion, sugerenciaHorario?.seccion])
+
+  // ── Módulo de Reserva de Salón / Laboratorio (Docente) ──
+  const [showReservaModal, setShowReservaModal] = useState(false)
+  const [misReservas, setMisReservas] = useState([])
+  const [avisoReservaDismissed, setAvisoReservaDismissed] = useState(false)
+
+  const actualizarMisReservas = useCallback(() => {
+    try {
+      const all = getLocalReservas()
+      const mis = all.filter(r => 
+        (docente?.dni && String(r.docenteDni) === String(docente.dni)) ||
+        (docente?.nombre && r.docenteNombre && r.docenteNombre.toLowerCase().includes(docente.nombre.toLowerCase().slice(0, 10)))
+      )
+      setMisReservas(mis)
+    } catch {
+      setMisReservas([])
+    }
+  }, [docente])
+
+  useEffect(() => {
+    actualizarMisReservas()
+    const handleUpdate = () => actualizarMisReservas()
+    window.addEventListener('epic_reservas_updated', handleUpdate)
+    return () => window.removeEventListener('epic_reservas_updated', handleUpdate)
+  }, [actualizarMisReservas])
+
+  // Reserva resuelta más reciente (para el apartado pequeño de notificación)
+  const ultimaReservaResuelta = useMemo(() => {
+    const resueltas = misReservas.filter(r => r.estado === 'APROBADA' || r.estado === 'RECHAZADA')
+    return resueltas.length > 0 ? resueltas[0] : null
+  }, [misReservas])
+
+  const misReservasResueltasNuevas = useMemo(() => {
+    return misReservas.filter(r => r.estado === 'APROBADA' || r.estado === 'RECHAZADA')
+  }, [misReservas])
 
   // ── Auto-guardar formulario en localStorage por docente ──
   const updateField = (field, value) => {
@@ -908,6 +945,25 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
                 <span className="hidden md:inline">Mis Clases</span>
               </button>
 
+              {/* Botón Reservar Espacio (Laboratorio / Aula) */}
+              <button
+                type="button"
+                onClick={() => setShowReservaModal(true)}
+                title="Solicitar reserva de aula o laboratorio según disponibilidad institucional"
+                className={`p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${isDarkMode
+                  ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/50 hover:text-white'
+                  : 'bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100 shadow-xs'
+                  }`}
+              >
+                <DoorOpen className="w-4 h-4 text-emerald-500" />
+                <span className="hidden md:inline">Reservar Espacio</span>
+                {misReservasResueltasNuevas.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-emerald-500 text-slate-950 animate-pulse">
+                    {misReservasResueltasNuevas.length}
+                  </span>
+                )}
+              </button>
+
               {/* Botón Guía Rápida */}
               <button
                 type="button"
@@ -998,6 +1054,76 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
               </div>
             </div>
           </motion.div>
+
+          {/* ─── NOTIFICACIÓN DE ESTADO DE RESERVA (APROBADA O RECHAZADA) ─── */}
+          {ultimaReservaResuelta && !avisoReservaDismissed && (
+            <motion.div
+              variants={itemVariants}
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`p-3.5 rounded-2xl border-2 flex items-center justify-between gap-3 shadow-lg transition-all ${
+                ultimaReservaResuelta.estado === 'APROBADA'
+                  ? isDarkMode
+                    ? 'bg-gradient-to-r from-emerald-950/60 via-slate-900 to-emerald-950/30 border-emerald-500/50 text-emerald-200'
+                    : 'bg-gradient-to-r from-emerald-50 to-white border-emerald-300 text-emerald-900'
+                  : isDarkMode
+                    ? 'bg-gradient-to-r from-rose-950/60 via-slate-900 to-rose-950/30 border-rose-500/50 text-rose-200'
+                    : 'bg-gradient-to-r from-rose-50 to-white border-rose-300 text-rose-900'
+              }`}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                  ultimaReservaResuelta.estado === 'APROBADA'
+                    ? isDarkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700'
+                    : isDarkMode ? 'bg-rose-500/20 text-rose-400' : 'bg-rose-100 text-rose-700'
+                }`}>
+                  <DoorOpen className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                      ultimaReservaResuelta.estado === 'APROBADA'
+                        ? 'bg-emerald-500 text-slate-950'
+                        : 'bg-rose-500 text-white'
+                    }`}>
+                      {ultimaReservaResuelta.estado === 'APROBADA' ? '✓ Reserva Aprobada por Dirección' : '✕ Reserva No Procedente'}
+                    </span>
+                    <span className="text-xs font-black truncate">
+                      {ultimaReservaResuelta.aula} ({ultimaReservaResuelta.horaInicio} – {ultimaReservaResuelta.horaFin})
+                    </span>
+                  </div>
+                  <p className={`text-xs mt-0.5 truncate ${isDarkMode ? 'text-white/70' : 'text-slate-600'}`}>
+                    {ultimaReservaResuelta.estado === 'APROBADA'
+                      ? `Motivo: "${ultimaReservaResuelta.motivo}" • Espacio confirmado y reservado en el cronograma institucional.`
+                      : `Motivo del rechazo: "${ultimaReservaResuelta.motivoRechazo || 'Sin observación adicional'}"`
+                    }
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowReservaModal(true)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    ultimaReservaResuelta.estado === 'APROBADA'
+                      ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300'
+                      : 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300'
+                  }`}
+                >
+                  Ver mis reservas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAvisoReservaDismissed(true)}
+                  className="p-1.5 rounded-xl hover:bg-white/10 text-white/40 hover:text-white transition-all cursor-pointer"
+                  title="Cerrar aviso"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </motion.div>
+          )}
 
           {/* ─── PASO 1: REGISTRAR INICIO DE CLASE INMEDIATO (ARRIBA) ─── */}
           <motion.section variants={itemVariants} id="tour-step-4">
@@ -1825,6 +1951,14 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
         isDarkMode={isDarkMode}
         onSelectTopic={handleSelectTopicFromHistory}
         showToast={showToast}
+      />
+
+      {/* ─── MODAL DE RESERVA DE SALÓN O LABORATORIO ─── */}
+      <DocenteReservaModal
+        isOpen={showReservaModal}
+        onClose={() => setShowReservaModal(false)}
+        docente={docente}
+        isDarkMode={isDarkMode}
       />
 
       {/* ─── MODAL ÉXITO Y AUTO-CIERRE EN 10 SEGUNDOS ─── */}

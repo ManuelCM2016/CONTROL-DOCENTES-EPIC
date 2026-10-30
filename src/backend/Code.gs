@@ -32,6 +32,7 @@ const SPREADSHEET_ID = '1gcHH0OVSXem5v9reEpwxehvRdtk5Y-ITy8RKdjQ109U'; // ← Re
 const HOJA_DOCENTES = 'MAESTRO_DOCENTES';
 const HOJA_DATOS = 'BASE_DE_DATOS';
 const HOJA_HORARIOS = 'HORARIOS';
+const HOJA_RESERVAS = 'RESERVAS';
 
 // ══════════════ UTILIDADES ══════════════
 
@@ -140,6 +141,10 @@ function doGet(e) {
 
     if (action === 'lista_docentes') {
       return createJsonResponse({ success: true, data: getListaDocentes() });
+    }
+
+    if (action === 'obtener_reservas') {
+      return createJsonResponse({ success: true, data: getReservasSheet() });
     }
 
     if (action === 'obtener_horarios') {
@@ -315,6 +320,19 @@ function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents);
     const actionPost = (payload.action || '').trim().toLowerCase();
+
+    // ══════════════════════════════════════════
+    // ACCIONES DE RESERVAS DE SALONES / LABS
+    // ══════════════════════════════════════════
+    if (actionPost === 'crear_reserva') {
+      return createJsonResponse(crearReservaSheet(payload));
+    }
+    if (actionPost === 'actualizar_reserva' || actionPost === 'actualizar_estado_reserva') {
+      return createJsonResponse(actualizarEstadoReservaSheet(payload));
+    }
+    if (actionPost === 'eliminar_reserva') {
+      return createJsonResponse(eliminarReservaSheet(payload.id));
+    }
     const sheet = getSheet(HOJA_DATOS);
 
     // ══════════════════════════════════════════
@@ -1448,9 +1466,16 @@ function formatHoraCell(val) {
     return Utilities.formatDate(val, 'America/Lima', 'HH:mm');
   }
   var str = String(val).trim();
-  // Si ya tiene formato HH:mm o HH:mm:ss, extraer solo HH:mm
-  var match = str.match(/(\d{1,2}:\d{2})/);
-  if (match) return match[1];
+  var match = str.match(/(?:T|\s|^)(\d{1,2}):(\d{2})/i);
+  if (match) {
+    var h = match[1].length === 1 ? '0' + match[1] : match[1];
+    return h + ':' + match[2];
+  }
+  var anyMatch = str.match(/(\d{1,2}):(\d{2})/);
+  if (anyMatch) {
+    var h2 = anyMatch[1].length === 1 ? '0' + anyMatch[1] : anyMatch[1];
+    return h2 + ':' + anyMatch[2];
+  }
   return str;
 }
 
@@ -1813,4 +1838,299 @@ function onSelectionChange(e) {
       sheet.getRange("C7").setValue("👤 " + dDocente + "   |   📚 " + dAsignatura);
     }
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO DE RESERVAS DE SALONES Y LABORATORIOS (EPIC)
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Obtiene o crea automáticamente la hoja RESERVAS con sus encabezados oficiales
+ */
+function getSheetReservas() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName(HOJA_RESERVAS);
+  
+  if (!sheet) {
+    sheet = ss.insertSheet(HOJA_RESERVAS);
+    const headers = [
+      'ID_RESERVA',          // Col 1 (A)
+      'FECHA_SOLICITUD',     // Col 2 (B)
+      'DNI',                 // Col 3 (C)
+      'DOCENTE',             // Col 4 (D)
+      'AULA',                // Col 5 (E)
+      'ASIGNATURA',          // Col 6 (F)
+      'MOTIVO',              // Col 7 (G)
+      'TIPO_RESERVA',        // Col 8 (H) UNICA / RECURRENTE
+      'FECHA',               // Col 9 (I) YYYY-MM-DD
+      'FECHA_INICIO',        // Col 10 (J) YYYY-MM-DD
+      'FECHA_FIN',           // Col 11 (K) YYYY-MM-DD
+      'DIA_SEMANA',          // Col 12 (L) Lunes..Sábado
+      'SEMANA_INICIO',       // Col 13 (M)
+      'SEMANA_FIN',          // Col 14 (N)
+      'HORA_INICIO',         // Col 15 (O) HH:mm
+      'HORA_FIN',            // Col 16 (P) HH:mm
+      'DURACION_HRS',        // Col 17 (Q)
+      'ESTADO',              // Col 18 (R) PENDIENTE / APROBADA / RECHAZADA
+      'CREADO_POR',          // Col 19 (S) DOCENTE / DIRECTORA
+      'COMENTARIO_ADMIN'     // Col 20 (T) Motivo rechazo u observación
+    ];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(1, 1, 1, headers.length)
+      .setBackground('#064e3b')
+      .setFontColor('#ffffff')
+      .setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+/**
+ * Helper: Convierte 'HH:mm' a minutos desde las 00:00 en Google Apps Script
+ */
+function horaToMinutosGAS(horaStr) {
+  if (!horaStr) return 0;
+  var str = String(horaStr).trim();
+  var match = str.match(/(\d{1,2}):(\d{2})/);
+  if (!match) return 0;
+  return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+}
+
+/**
+ * Helper: Verifica si dos intervalos horarios se solapan en Google Apps Script
+ */
+function solapanHorasGAS(iniA, finA, iniB, finB) {
+  var a1 = horaToMinutosGAS(iniA);
+  var a2 = horaToMinutosGAS(finA);
+  var b1 = horaToMinutosGAS(iniB);
+  var b2 = horaToMinutosGAS(finB);
+  if (a1 === 0 && a2 === 0) return false;
+  if (b1 === 0 && b2 === 0) return false;
+  return Math.max(a1, b1) < Math.min(a2, b2);
+}
+
+/**
+ * Helper: Normaliza código de aula (ej: 'LABORATORIO R-205' -> 'R-205')
+ */
+function normalizarAulaGAS(aulaStr) {
+  if (!aulaStr) return '';
+  var str = String(aulaStr).toUpperCase().trim();
+  var match = str.match(/([RS]-\d{3})/i);
+  if (match) return match[1].toUpperCase();
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * Helper: Obtiene el día de la semana en español para una fecha YYYY-MM-DD
+ */
+function getDiaSemanaGAS(fechaStr) {
+  if (!fechaStr) return '';
+  try {
+    var d = new Date(fechaStr + 'T12:00:00');
+    if (isNaN(d.getTime())) return '';
+    var dias = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+    return dias[d.getDay()];
+  } catch (e) {
+    return '';
+  }
+}
+
+/**
+ * Consulta todas las reservas registradas
+ * Utiliza getDisplayValues() para obtener el formato visual exacto de cada celda ('08:30', '10:30')
+ * evitando conversiones no deseadas a objetos Date de 1899.
+ */
+function getReservasSheet() {
+  const sheet = getSheetReservas();
+  const range = sheet.getDataRange();
+  const data = range.getValues();
+  const displayData = range.getDisplayValues();
+  const reservas = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const dispRow = displayData[i] || [];
+    if (!row[0]) continue;
+
+    let fechaStr = dispRow[8] || (row[8] instanceof Date 
+      ? Utilities.formatDate(row[8], Session.getScriptTimeZone(), 'yyyy-MM-dd') 
+      : String(row[8] || '').trim());
+
+    let fechaIniStr = dispRow[9] || (row[9] instanceof Date 
+      ? Utilities.formatDate(row[9], Session.getScriptTimeZone(), 'yyyy-MM-dd') 
+      : String(row[9] || '').trim());
+
+    let fechaFinStr = dispRow[10] || (row[10] instanceof Date 
+      ? Utilities.formatDate(row[10], Session.getScriptTimeZone(), 'yyyy-MM-dd') 
+      : String(row[10] || '').trim());
+
+    const hIniRaw = dispRow[14] || row[14];
+    const hFinRaw = dispRow[15] || row[15];
+    const horaIniFormateada = formatHoraCell(hIniRaw);
+    const horaFinFormateada = formatHoraCell(hFinRaw);
+
+    reservas.push({
+      id: String(row[0]),
+      fechaSolicitud: String(dispRow[1] || row[1] || ''),
+      dni: String(dispRow[2] || row[2] || ''),
+      docente: String(row[3] || ''),
+      docenteDni: String(dispRow[2] || row[2] || ''),
+      docenteNombre: String(row[3] || ''),
+      aula: String(row[4] || ''),
+      asignatura: String(row[5] || ''),
+      motivo: String(row[6] || ''),
+      tipoReserva: String(row[7] || 'UNICA'),
+      fecha: normalizeDateStr(fechaStr, Session.getScriptTimeZone()),
+      fechaInicio: normalizeDateStr(fechaIniStr || fechaStr, Session.getScriptTimeZone()),
+      fechaFin: normalizeDateStr(fechaFinStr || fechaStr, Session.getScriptTimeZone()),
+      diaSemana: String(row[11] || ''),
+      semanaInicio: Number(row[12] || 1),
+      semanaFin: Number(row[13] || 18),
+      horaInicio: horaIniFormateada,
+      horaFin: horaFinFormateada,
+      duracionHrs: Number(row[16] || 2),
+      estado: String(row[17] || 'PENDIENTE'),
+      creadoPor: String(row[18] || 'DOCENTE'),
+      comentarioAdmin: String(row[19] || '')
+    });
+  }
+
+  return reservas.reverse();
+}
+
+/**
+ * Registra una nueva reserva (docente o directora)
+ * Incluye validación de concurrencia y conflicto en el servidor.
+ */
+function crearReservaSheet(p) {
+  // Desempaquetar si viene anidado en 'reserva' o directamente
+  const r = (p && typeof p.reserva === 'object' && p.reserva !== null) ? p.reserva : (p || {});
+  const sheet = getSheetReservas();
+  const idReserva = r.id || p.id || ('RES_' + new Date().getTime() + '_' + Math.floor(Math.random() * 1000));
+  const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+
+  const aulaNueva = String(r.aula || p.aula || '').trim();
+  const hIniNueva = formatHoraCell(r.horaInicio || p.horaInicio || '');
+  const hFinNueva = formatHoraCell(r.horaFin || p.horaFin || '');
+  const tipoNueva = String(r.tipoReserva || p.tipoReserva || 'UNICA').trim().toUpperCase();
+  const fechaNueva = normalizeDateStr(r.fecha || p.fecha || '', Session.getScriptTimeZone());
+  const diaNueva = String(r.diaSemana || p.diaSemana || '').trim().toLowerCase();
+
+  if (!aulaNueva || !hIniNueva || !hFinNueva) {
+    return {
+      success: false,
+      message: 'Faltan datos obligatorios para la reserva (Aula, Hora Inicio o Fin).'
+    };
+  }
+
+  // 1. VALIDACIÓN CONTRA RESERVAS EXISTENTES EN GOOGLE SHEETS
+  const existentes = getReservasSheet();
+  for (var k = 0; k < existentes.length; k++) {
+    var ex = existentes[k];
+    if (ex.id === idReserva) continue;
+    if (String(ex.estado).toUpperCase() === 'RECHAZADA') continue;
+
+    if (normalizarAulaGAS(ex.aula) === normalizarAulaGAS(aulaNueva)) {
+      var coincideDia = false;
+      var exTipo = String(ex.tipoReserva).toUpperCase();
+      var exDia = String(ex.diaSemana).trim().toLowerCase();
+      var exFecha = String(ex.fecha || '').trim().slice(0, 10);
+
+      if (tipoNueva === 'UNICA' && exTipo === 'UNICA') {
+        coincideDia = (fechaNueva && exFecha && fechaNueva === exFecha);
+      } else if (tipoNueva === 'RECURRENTE' && exTipo === 'RECURRENTE') {
+        coincideDia = (diaNueva && exDia && diaNueva === exDia);
+      } else if (tipoNueva === 'UNICA' && exTipo === 'RECURRENTE') {
+        var diaSemFecha = getDiaSemanaGAS(fechaNueva);
+        coincideDia = (diaSemFecha === exDia || diaNueva === exDia);
+      } else if (tipoNueva === 'RECURRENTE' && exTipo === 'UNICA') {
+        var diaSemEx = getDiaSemanaGAS(exFecha);
+        coincideDia = (diaNueva === diaSemEx || diaNueva === exDia);
+      }
+
+      if (coincideDia && solapanHorasGAS(hIniNueva, hFinNueva, ex.horaInicio, ex.horaFin)) {
+        return {
+          success: false,
+          message: 'Conflicto: El ambiente ' + aulaNueva + ' ya tiene una reserva en ese horario (' + (ex.docente || 'Docente') + ' - ' + (ex.asignatura || 'Clase') + ' de ' + ex.horaInicio + ' a ' + ex.horaFin + ').'
+        };
+      }
+    }
+  }
+
+  // 2. INSERTAR FILA EN LA HOJA
+  const newRow = [
+    idReserva,
+    timestamp,
+    String(r.dni || r.docenteDni || p.dni || '').trim(),
+    String(r.docente || r.docenteNombre || p.docente || '').trim(),
+    aulaNueva,
+    String(r.asignatura || p.asignatura || '').trim(),
+    String(r.motivo || p.motivo || '').trim(),
+    tipoNueva,
+    fechaNueva,
+    String(r.fechaInicio || r.fecha || p.fechaInicio || p.fecha || '').trim(),
+    String(r.fechaFin || r.fecha || p.fechaFin || p.fecha || '').trim(),
+    String(r.diaSemana || p.diaSemana || '').trim(),
+    Number(r.semanaInicio || p.semanaInicio || 1),
+    Number(r.semanaFin || p.semanaFin || 18),
+    hIniNueva,
+    hFinNueva,
+    Number(r.duracionHrs || p.duracionHrs || 2),
+    String(r.estado || p.estado || 'PENDIENTE').toUpperCase().trim(),
+    String(r.creadoPor || p.creadoPor || 'DOCENTE').trim(),
+    String(r.comentarioAdmin || p.comentarioAdmin || '').trim()
+  ];
+
+  sheet.appendRow(newRow);
+  return { 
+    success: true, 
+    message: 'Reserva registrada con éxito en Google Sheets.', 
+    data: { id: idReserva } 
+  };
+}
+
+/**
+ * Actualiza el estado (APROBADA / RECHAZADA) y comentario de Dirección
+ */
+function actualizarEstadoReservaSheet(p) {
+  const r = (p && typeof p.reserva === 'object' && p.reserva !== null) ? p.reserva : (p || {});
+  const sheet = getSheetReservas();
+  const data = sheet.getDataRange().getValues();
+  const targetId = String(r.id || p.id || '').trim();
+
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === targetId) {
+      const rowNum = i + 1;
+      const nuevoEstado = r.estado || p.estado;
+      const nuevoComentario = r.comentarioAdmin !== undefined ? r.comentarioAdmin : p.comentarioAdmin;
+
+      if (nuevoEstado) sheet.getRange(rowNum, 18).setValue(String(nuevoEstado).toUpperCase().trim());
+      if (nuevoComentario !== undefined) sheet.getRange(rowNum, 20).setValue(String(nuevoComentario).trim());
+
+      return { 
+        success: true, 
+        message: 'Estado de reserva actualizado a: ' + nuevoEstado 
+      };
+    }
+  }
+
+  return { success: false, message: 'No se encontró la reserva con ID: ' + targetId };
+}
+
+/**
+ * Elimina una reserva de la hoja
+ */
+function eliminarReservaSheet(id) {
+  const sheet = getSheetReservas();
+  const data = sheet.getDataRange().getValues();
+  const targetId = String(id || '').trim();
+
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === targetId) {
+      sheet.deleteRow(i + 1);
+      return { success: true, message: 'Reserva eliminada de Google Sheets.' };
+    }
+  }
+
+  return { success: false, message: 'No se encontró la reserva para eliminar.' };
 }

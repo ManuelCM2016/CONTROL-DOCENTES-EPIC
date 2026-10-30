@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Activity,
@@ -15,52 +15,16 @@ import {
   X,
   Building2,
   Calendar,
-  Radio
+  Radio,
+  DoorOpen
 } from 'lucide-react'
 import MonitoreoView from './MonitoreoView'
 import DashboardView from './DashboardView'
 import HistorialGlobalView from './HistorialGlobalView'
 import DocentesView from './DocentesView'
 import HorariosView from './HorariosView'
-
-const NAV_ITEMS = [
-  {
-    id: 'monitoreo',
-    label: 'Aulas Activas en Vivo',
-    subtitle: 'Monitoreo en tiempo real',
-    icon: Radio,
-    badge: 'LIVE',
-    color: 'emerald'
-  },
-  {
-    id: 'dashboard',
-    label: 'Dashboard & Estadísticas',
-    subtitle: 'KPIs y avance silábico',
-    icon: BarChart3,
-    color: 'indigo'
-  },
-  {
-    id: 'historial',
-    label: 'Historial de Sesiones',
-    subtitle: 'Auditoría y exportación',
-    icon: FileSpreadsheet,
-    color: 'blue'
-  },
-  {
-    id: 'docentes',
-    label: 'Directorio Docente',
-    subtitle: 'Plana oficial y asignaturas',
-    icon: GraduationCap,
-    color: 'purple'
-  },
-  {
-    id: 'horarios',
-    label: 'Horarios del Semestre',
-    subtitle: 'Carga y gestión académica',
-    icon: Calendar,
-    color: 'amber'
-  }
-]
+import ReservasView from './ReservasView'
+import { getLocalReservas } from '../../services/reservasService'
 
 const AdminDashboard = ({
   adminUser,
@@ -71,6 +35,68 @@ const AdminDashboard = ({
   const [currentSection, setCurrentSection] = useState('monitoreo')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [pendientesCount, setPendientesCount] = useState(0)
+
+  // Escuchar y actualizar contador de reservas pendientes en tiempo real
+  useEffect(() => {
+    const updateCount = () => {
+      const all = getLocalReservas()
+      const count = all.filter(r => r.estado === 'PENDIENTE').length
+      setPendientesCount(count)
+    }
+    updateCount()
+    window.addEventListener('epic_reservas_updated', updateCount)
+    return () => window.removeEventListener('epic_reservas_updated', updateCount)
+  }, [])
+
+  const navItems = useMemo(() => [
+    {
+      id: 'monitoreo',
+      label: 'Aulas Activas en Vivo',
+      subtitle: 'Monitoreo en tiempo real',
+      icon: Radio,
+      badge: 'LIVE',
+      badgeColor: 'emerald',
+      color: 'emerald'
+    },
+    {
+      id: 'reservas',
+      label: 'Reserva de Ambientes',
+      subtitle: 'Aulas, labs y solicitudes',
+      icon: DoorOpen,
+      badge: pendientesCount > 0 ? `${pendientesCount} PEND.` : null,
+      badgeColor: 'amber',
+      color: 'emerald'
+    },
+    {
+      id: 'dashboard',
+      label: 'Dashboard & Estadísticas',
+      subtitle: 'KPIs y avance silábico',
+      icon: BarChart3,
+      color: 'indigo'
+    },
+    {
+      id: 'historial',
+      label: 'Historial de Sesiones',
+      subtitle: 'Auditoría y exportación',
+      icon: FileSpreadsheet,
+      color: 'blue'
+    },
+    {
+      id: 'docentes',
+      label: 'Directorio Docente',
+      subtitle: 'Plana oficial y asignaturas',
+      icon: GraduationCap,
+      color: 'purple'
+    },
+    {
+      id: 'horarios',
+      label: 'Horarios del Semestre',
+      subtitle: 'Carga y gestión académica',
+      icon: Calendar,
+      color: 'amber'
+    }
+  ], [pendientesCount])
 
   const fechaHoy = new Date().toLocaleDateString('es-PE', {
     weekday: 'long',
@@ -147,8 +173,9 @@ const AdminDashboard = ({
 
           {/* User Profile Card */}
           <div
-            className={`p-3 rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden ${sidebarCollapsed ? 'text-center' : ''
-              }`}
+            className={`p-3 rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden ${
+              sidebarCollapsed ? 'text-center' : ''
+            }`}
           >
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-md">
@@ -169,7 +196,7 @@ const AdminDashboard = ({
 
           {/* Navigation Links */}
           <nav className="space-y-1.5">
-            {NAV_ITEMS.map((item) => {
+            {navItems.map((item) => {
               const Icon = item.icon
               const isActive = currentSection === item.id
 
@@ -177,17 +204,19 @@ const AdminDashboard = ({
                 <button
                   key={item.id}
                   onClick={() => setCurrentSection(item.id)}
-                  className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl font-bold text-xs transition-all cursor-pointer group relative ${isActive
-                    ? 'bg-gradient-to-r from-blue-600/30 via-indigo-600/20 to-transparent text-white border border-blue-500/40 shadow-lg shadow-blue-950/40'
-                    : 'text-white/60 hover:text-white hover:bg-white/[0.04] border border-transparent'
-                    }`}
+                  className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl font-bold text-xs transition-all cursor-pointer group relative ${
+                    isActive
+                      ? 'bg-gradient-to-r from-blue-600/30 via-indigo-600/20 to-transparent text-white border border-blue-500/40 shadow-lg shadow-blue-950/40'
+                      : 'text-white/60 hover:text-white hover:bg-white/[0.04] border border-transparent'
+                  }`}
                   title={sidebarCollapsed ? item.label : undefined}
                 >
                   <div
-                    className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors ${isActive
-                      ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30'
-                      : 'bg-white/5 text-white/50 group-hover:text-white group-hover:bg-white/10'
-                      }`}
+                    className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                      isActive
+                        ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30'
+                        : 'bg-white/5 text-white/50 group-hover:text-white group-hover:bg-white/10'
+                    }`}
                   >
                     <Icon className="w-4 h-4" />
                   </div>
@@ -197,7 +226,11 @@ const AdminDashboard = ({
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-xs">{item.label}</span>
                         {item.badge && (
-                          <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black bg-emerald-500 text-black animate-pulse">
+                          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black ${
+                            item.badgeColor === 'amber'
+                              ? 'bg-amber-500 text-black animate-pulse'
+                              : 'bg-emerald-500 text-black animate-pulse'
+                          }`}>
                             {item.badge}
                           </span>
                         )}
@@ -267,7 +300,7 @@ const AdminDashboard = ({
             className="md:hidden fixed inset-x-0 top-16 z-30 bg-[#0d1117]/95 backdrop-blur-2xl border-b border-white/10 p-5 space-y-3"
           >
             <nav className="space-y-1.5">
-              {NAV_ITEMS.map((item) => {
+              {navItems.map((item) => {
                 const Icon = item.icon
                 const isActive = currentSection === item.id
 
@@ -278,13 +311,21 @@ const AdminDashboard = ({
                       setCurrentSection(item.id)
                       setMobileMenuOpen(false)
                     }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs transition-all ${isActive
-                      ? 'bg-blue-600/30 text-white border border-blue-500/40'
-                      : 'text-white/60 hover:text-white bg-white/5'
-                      }`}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs transition-all ${
+                      isActive
+                        ? 'bg-blue-600/30 text-white border border-blue-500/40'
+                        : 'text-white/60 hover:text-white bg-white/5'
+                    }`}
                   >
                     <Icon className="w-4 h-4 text-blue-400" />
-                    <span>{item.label}</span>
+                    <div className="flex-1 flex items-center justify-between text-left">
+                      <span>{item.label}</span>
+                      {item.badge && (
+                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-500 text-black">
+                          {item.badge}
+                        </span>
+                      )}
+                    </div>
                   </button>
                 )
               })}
@@ -338,6 +379,9 @@ const AdminDashboard = ({
             >
               {currentSection === 'monitoreo' && (
                 <MonitoreoView isDarkMode={isDarkMode} />
+              )}
+              {currentSection === 'reservas' && (
+                <ReservasView isDarkMode={isDarkMode} />
               )}
               {currentSection === 'dashboard' && (
                 <DashboardView isDarkMode={isDarkMode} />
