@@ -24,7 +24,15 @@ import {
   DoorOpen
 } from 'lucide-react'
 import { obtenerHorarios, cargarHorariosSemestre, obtenerReservas } from '../../services/adminApi'
-import { getDiaSemanaFromDate } from '../../services/reservasService'
+import { 
+  getDiaSemanaFromDate, 
+  getLocalReservas, 
+  normalizarReserva, 
+  getNombreEstandarAula, 
+  coincidenAulas, 
+  formatHora 
+} from '../../services/reservasService'
+import HORARIOS_DEFAULT from '../../data/horarios_procesados.json'
 import * as XLSX from 'xlsx'
 
 // ── Constantes ──
@@ -114,8 +122,73 @@ function parseExcelCiclos(workbook) {
 }
 
 // ═══════════════════════════════════════════════════════
-// CELDA DE CLASE EN LA GRILLA
+// HELPERS Y CELDA DE CLASE EN LA GRILLA
 // ═══════════════════════════════════════════════════════
+
+/**
+ * Normaliza y estandariza una clase regular oficial
+ */
+const formatearClase = (c) => ({
+  ...c,
+  aula: getNombreEstandarAula(c.AULA || c.aula),
+  codigo: c.CODIGO || c.codigo || '',
+  curso: c.CURSO || c.curso || '',
+  docente: c.DOCENTE || c.docente || '',
+  seccion: c.SECCION || c.seccion || '',
+  dia: c.DIA || c.dia || '',
+  horaInicio: formatHora(c.HORA_INICIO || c.hora_inicio || c.horaInicio),
+  horaFin: formatHora(c.HORA_FIN || c.hora_fin || c.horaFin),
+  duracionHrs: Number(c.DURACION_HRS || c.duracionHrs) || 2,
+  ciclo: String(c.CICLO || c.ciclo || '1'),
+  esReserva: false
+})
+
+/**
+ * Convierte reservas aprobadas al formato de visualización en la grilla del semestre
+ */
+const mapearReservasAHorarios = (reservas = [], listaClases = []) => {
+  return (reservas || []).map(r => {
+    const rNorm = normalizarReserva(r)
+    const diaSemana = rNorm.diaSemana || getDiaSemanaFromDate(rNorm.fecha) || 'Lunes'
+    const iniMin = horaToMinutos(rNorm.horaInicio)
+    const finMin = horaToMinutos(rNorm.horaFin)
+    const duracion = parseFloat(((finMin - iniMin) / 60).toFixed(1)) || Number(rNorm.duracionHrs) || 2
+    const aulaEstandar = getNombreEstandarAula(rNorm.aula)
+
+    // Intentar asociar con el ciclo de la asignatura para que aparezca también en la vista de ciclo
+    let cicloDeducido = 'RES'
+    if (rNorm.asignatura) {
+      const matchClase = (listaClases || []).find(c => {
+        const cCur = String(c.CURSO || c.curso || '').toLowerCase()
+        const cCod = String(c.CODIGO || c.codigo || '').toLowerCase()
+        const asig = String(rNorm.asignatura || '').toLowerCase()
+        return (cCur && asig.includes(cCur)) || (cCod && asig.includes(cCod))
+      })
+      if (matchClase) {
+        cicloDeducido = String(matchClase.CICLO || matchClase.ciclo || 'RES')
+      }
+    }
+
+    return {
+      codigo: 'RESERVA',
+      curso: rNorm.asignatura || 'Reserva de Ambiente',
+      motivo: rNorm.motivo || '',
+      docente: rNorm.docente || rNorm.docenteNombre || 'Docente',
+      seccion: rNorm.tipoReserva === 'RECURRENTE' 
+        ? (rNorm.fechaInicio ? `Recurrente (${rNorm.fechaInicio} ~ ${rNorm.fechaFin})` : 'Recurrente') 
+        : (rNorm.fecha ? `Fecha: ${rNorm.fecha}` : 'Puntual'),
+      dia: diaSemana,
+      horaInicio: rNorm.horaInicio,
+      horaFin: rNorm.horaFin,
+      duracionHrs: duracion,
+      aula: aulaEstandar,
+      ciclo: cicloDeducido,
+      esReserva: true,
+      reservaData: rNorm
+    }
+  })
+}
+
 const ClaseCell = ({ clase, rowSpan, cellHeight, isCompact = false, showAula = true }) => {
   const color = getColor(clase.ciclo)
   const isReserva = Boolean(clase.esReserva)
@@ -124,53 +197,62 @@ const ClaseCell = ({ clase, rowSpan, cellHeight, isCompact = false, showAula = t
     <motion.div
       initial={{ opacity: 0, scale: 0.85 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.35, ease: 'easeOut' }}
-      whileHover={{ scale: 1.04, zIndex: 30 }}
+      transition={{ duration: 0.25, ease: 'easeOut' }}
+      whileHover={{ scale: 1.03, zIndex: 30 }}
       className={`absolute inset-0.5 rounded-xl cursor-pointer overflow-hidden group shadow-md ${
         isReserva ? 'ring-1 ring-emerald-400/50' : ''
       }`}
       style={{
-        background: isReserva ? 'linear-gradient(135deg, rgba(16,185,129,0.28) 0%, rgba(5,150,105,0.38) 100%)' : color.bg,
+        background: isReserva 
+          ? 'linear-gradient(135deg, rgba(16,185,129,0.25) 0%, rgba(5,150,105,0.35) 100%)' 
+          : color.bg,
         border: `1.5px ${isReserva ? 'dashed' : 'solid'} ${isReserva ? 'rgba(52,211,153,0.85)' : color.border}`,
         height: `${cellHeight}px`,
       }}
       title={
         isReserva
-          ? `[RESERVA APROBADA]\nMotivo: ${clase.reservaData?.motivo || clase.curso}\nDocente: ${clase.docente}\nAula: ${clase.aula}\nHorario: ${clase.horaInicio} – ${clase.horaFin} (${clase.duracionHrs}h)\nTipo: ${clase.seccion}`
+          ? `[RESERVA APROBADA]\nAsignatura/Actividad: ${clase.curso}\n${clase.motivo ? `Motivo: ${clase.motivo}\n` : ''}Docente: ${clase.docente}\nAula: ${clase.aula}\nHorario: ${clase.horaInicio} – ${clase.horaFin} (${clase.duracionHrs}h)\n${clase.seccion}`
           : `${clase.curso}\nDocente: ${clase.docente}\nAula: ${clase.aula} | Sec: ${clase.seccion || 'A'}\nHorario: ${clase.horaInicio} – ${clase.horaFin} (${clase.duracionHrs}h)\nCiclo: ${clase.ciclo}`
       }
     >
       {/* Glow effect on hover */}
       <div
         className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
-        style={{ background: `radial-gradient(ellipse at center, ${color.bg}, transparent 70%)` }}
+        style={{ background: `radial-gradient(ellipse at center, ${isReserva ? 'rgba(16,185,129,0.3)' : color.bg}, transparent 70%)` }}
       />
 
       <div className={`relative ${isCompact ? 'p-1.5' : 'p-2'} h-full flex flex-col justify-between text-left`}>
         {/* Hora y Tipo */}
         <div className="flex items-center justify-between gap-1">
-          <span className={`${isCompact ? 'text-[9px]' : 'text-[10px]'} font-black tracking-wide truncate`} style={{ color: color.text }}>
+          <span className={`${isCompact ? 'text-[9px]' : 'text-[10px]'} font-black tracking-wide truncate`} style={{ color: isReserva ? '#a7f3d0' : color.text }}>
             {clase.horaInicio} ~ {clase.horaFin}
           </span>
-          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: isReserva ? 'rgba(16,185,129,0.6)' : color.border, color: '#fff' }}>
+          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: isReserva ? 'rgba(16,185,129,0.7)' : color.border, color: '#fff' }}>
             {isReserva ? 'RESERVA' : `${clase.duracionHrs}h`}
           </span>
         </div>
 
-        {/* Curso */}
-        <p className={`${isCompact ? 'text-[10px]' : 'text-[11px]'} font-black leading-tight mt-1 line-clamp-2 ${isReserva ? 'text-emerald-200' : 'text-white'}`}>
-          {clase.curso}
-        </p>
+        {/* Curso y Motivo */}
+        <div>
+          <p className={`${isCompact ? 'text-[10px]' : 'text-[11px]'} font-black leading-tight mt-0.5 line-clamp-2 ${isReserva ? 'text-emerald-200' : 'text-white'}`}>
+            {clase.curso}
+          </p>
+          {isReserva && clase.motivo && (
+            <p className="text-[9px] text-emerald-300/80 italic truncate mt-0.5 font-medium">
+              &ldquo;{clase.motivo}&rdquo;
+            </p>
+          )}
+        </div>
 
         {/* Docente */}
         <p className="text-[9px] text-white/60 font-medium leading-tight mt-0.5 line-clamp-1">
-          👤 {clase.docente}
+          {clase.docente}
         </p>
 
         {/* Aula / Ciclo + Sección */}
         <div className="flex items-center justify-between mt-auto pt-1 gap-1">
-          <span className="text-[9px] font-black truncate" style={{ color: color.text }}>
-            {isReserva ? `🏛️ ${clase.aula}` : (showAula ? clase.aula : `Ciclo ${clase.ciclo}`)}
+          <span className="text-[9px] font-black truncate" style={{ color: isReserva ? '#6ee7b7' : color.text }}>
+            {showAula ? clase.aula : `Ciclo ${clase.ciclo}`}
           </span>
           <div className="flex items-center gap-1 shrink-0">
             {!showAula && !isReserva && (
@@ -180,7 +262,7 @@ const ClaseCell = ({ clase, rowSpan, cellHeight, isCompact = false, showAula = t
             )}
             {clase.seccion && (
               <span className={`text-[8px] font-bold px-1 py-0.5 rounded ${isReserva ? 'bg-emerald-500/25 text-emerald-300' : 'bg-white/10 text-white/70'}`}>
-                {clase.seccion}
+                {isReserva ? clase.seccion : `Sec. ${clase.seccion}`}
               </span>
             )}
           </div>
@@ -194,8 +276,17 @@ const ClaseCell = ({ clase, rowSpan, cellHeight, isCompact = false, showAula = t
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════
 const HorariosView = ({ isDarkMode }) => {
-  const [horarios, setHorarios] = useState([])
-  const [loading, setLoading] = useState(true)
+  // Inicialización inmediata (0 ms de espera con clases oficiales y reservas aprobadas)
+  const getInitialData = () => {
+    const clasesIniciales = (HORARIOS_DEFAULT || []).map(formatearClase)
+    const reservasAprobadas = getLocalReservas().filter(r => r.estado === 'APROBADA')
+    const reservasIniciales = mapearReservasAHorarios(reservasAprobadas, clasesIniciales)
+    return [...clasesIniciales, ...reservasIniciales]
+  }
+
+  const [horarios, setHorarios] = useState(getInitialData)
+  const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [mensaje, setMensaje] = useState('')
   const [filtroCiclo, setFiltroCiclo] = useState('')
   const [filtroAula, setFiltroAula] = useState('')
@@ -207,64 +298,61 @@ const HorariosView = ({ isDarkMode }) => {
   const [uploadResult, setUploadResult] = useState(null)
   const fileInputRef = useRef(null)
 
-  // ── Cargar horarios y reservas aprobadas ──
-  const cargarHorariosExistentes = useCallback(async () => {
-    setLoading(true)
+  // ── Cargar horarios y reservas aprobadas en segundo plano ──
+  const cargarHorariosExistentes = useCallback(async (isManualRefresh = false) => {
+    if (isManualRefresh) {
+      setRefreshing(true)
+    }
     try {
       const [resH, resR] = await Promise.allSettled([
         obtenerHorarios(),
         obtenerReservas()
       ])
 
-      let items = []
+      let itemsClases = []
       let msg = ''
 
-      if (resH.status === 'fulfilled' && resH.value?.success && resH.value.data) {
-        items = [...(resH.value.data.horarios || [])]
+      if (resH.status === 'fulfilled' && resH.value?.success && Array.isArray(resH.value.data?.horarios) && resH.value.data.horarios.length > 0) {
+        itemsClases = resH.value.data.horarios.map(formatearClase)
         msg = resH.value.data.mensaje || ''
+      } else {
+        // Fallback seguro: mantener siempre las clases oficiales
+        itemsClases = (HORARIOS_DEFAULT || []).map(formatearClase)
       }
 
-      // Requerimiento: En el módulo 'Horario de Semestre' se visualizan las reservas realizadas (aprobadas)
+      let reservasData = []
       if (resR.status === 'fulfilled' && resR.value?.success && Array.isArray(resR.value.data)) {
-        const reservasAprobadas = resR.value.data.filter(r => r.estado === 'APROBADA')
-        const itemsReservas = reservasAprobadas.map(r => {
-          const diaSemana = r.tipoReserva === 'RECURRENTE' ? r.diaSemana : getDiaSemanaFromDate(r.fecha)
-          const iniMin = horaToMinutos(r.horaInicio)
-          const finMin = horaToMinutos(r.horaFin)
-          const duracion = parseFloat(((finMin - iniMin) / 60).toFixed(1)) || 2
-
-          return {
-            codigo: 'RESERVA',
-            curso: `📌 [RESERVA] ${r.motivo || 'Uso de Ambiente'}`,
-            docente: r.docenteNombre,
-            seccion: r.tipoReserva === 'RECURRENTE' 
-              ? (r.fechaInicio ? `Recurrente (${r.fechaInicio} ~ ${r.fechaFin})` : `Recurrente (Sem. ${r.semanaInicio}-${r.semanaFin})`) 
-              : `Fecha: ${r.fecha}`,
-            dia: diaSemana,
-            horaInicio: r.horaInicio,
-            horaFin: r.horaFin,
-            duracionHrs: duracion,
-            aula: r.aula,
-            ciclo: 'RES',
-            esReserva: true,
-            reservaData: r
-          }
-        })
-        items = [...items, ...itemsReservas]
+        reservasData = resR.value.data
+      } else {
+        reservasData = getLocalReservas()
       }
 
-      setHorarios(items)
-      setMensaje(msg)
+      const reservasAprobadas = reservasData.filter(r => r.estado === 'APROBADA')
+      const itemsReservas = mapearReservasAHorarios(reservasAprobadas, itemsClases)
+
+      setHorarios([...itemsClases, ...itemsReservas])
+      if (msg) setMensaje(msg)
     } catch (err) {
-      setMensaje('Error de conexión: ' + err.message)
+      console.warn('Error al sincronizar horarios con la nube:', err)
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [])
 
   useEffect(() => {
-    cargarHorariosExistentes()
-    const handleUpdate = () => cargarHorariosExistentes()
+    cargarHorariosExistentes(false)
+
+    // Escuchar actualizaciones locales de reservas (ej. aprobación o rechazo en ReservasView)
+    const handleUpdate = () => {
+      const aprobadas = getLocalReservas().filter(r => r.estado === 'APROBADA')
+      setHorarios(prev => {
+        const soloClases = prev.filter(h => !h.esReserva)
+        const nuevasReservas = mapearReservasAHorarios(aprobadas, soloClases)
+        return [...soloClases, ...nuevasReservas]
+      })
+    }
+
     window.addEventListener('epic_reservas_updated', handleUpdate)
     return () => window.removeEventListener('epic_reservas_updated', handleUpdate)
   }, [cargarHorariosExistentes])
@@ -308,7 +396,7 @@ const HorariosView = ({ isDarkMode }) => {
       if (res.success) {
         setUploadResult({ success: true, message: res.message || `${parsedData.stats.totalRegistros} horarios cargados.` })
         setParsedData(null)
-        setTimeout(() => cargarHorariosExistentes(), 1000)
+        setTimeout(() => cargarHorariosExistentes(true), 1000)
       } else {
         setUploadResult({ success: false, message: res.message || 'Error al cargar.' })
       }
@@ -323,13 +411,23 @@ const HorariosView = ({ isDarkMode }) => {
   const horariosFiltrados = useMemo(() => {
     return horarios.filter(h => {
       // Filtrar por ciclo en modo ciclos o lista
-      if ((viewMode === 'grid_ciclos' || viewMode === 'list') && filtroCiclo && h.ciclo !== filtroCiclo) return false
-      // Filtrar por aula en modo ambientes o lista
-      if ((viewMode === 'grid_ambientes' || viewMode === 'list') && filtroAula && (h.aula || '').toUpperCase() !== filtroAula.toUpperCase()) return false
+      if ((viewMode === 'grid_ciclos' || viewMode === 'list') && filtroCiclo) {
+        if (h.esReserva) {
+          if (h.ciclo !== filtroCiclo && h.ciclo !== 'RES') return false
+        } else if (h.ciclo !== filtroCiclo) {
+          return false
+        }
+      }
+
+      // Filtrar por aula en modo ambientes o lista (soporta coincidencia tolerante R-206 vs LABORATORIO R-206)
+      if ((viewMode === 'grid_ambientes' || viewMode === 'list') && filtroAula) {
+        if (!coincidenAulas(h.aula, filtroAula)) return false
+      }
 
       if (filtroBusqueda) {
         const q = filtroBusqueda.toLowerCase()
         return (h.curso || '').toLowerCase().includes(q) ||
+               (h.motivo || '').toLowerCase().includes(q) ||
                (h.docente || '').toLowerCase().includes(q) ||
                (h.aula || '').toLowerCase().includes(q) ||
                (h.codigo || '').toLowerCase().includes(q) ||
@@ -349,9 +447,9 @@ const HorariosView = ({ isDarkMode }) => {
       total: horarios.length,
       totalReservas,
       clasesOficiales: horarios.length - totalReservas,
-      docentes: new Set(horarios.map(h => h.docente)).size,
-      cursos: new Set(horarios.filter(h => !h.esReserva).map(h => h.codigo)).size,
-      aulas: new Set(horarios.map(h => h.aula)).size,
+      docentes: new Set(horarios.map(h => h.docente).filter(Boolean)).size,
+      cursos: new Set(horarios.filter(h => !h.esReserva).map(h => h.codigo).filter(Boolean)).size,
+      aulas: listaAulas.length,
       ciclos: [...new Set(horarios.map(h => h.ciclo))].filter(c => c && c !== 'RES').sort((a, b) => Number(a) - Number(b)),
       listaAulas,
     }
@@ -454,9 +552,9 @@ const HorariosView = ({ isDarkMode }) => {
               </button>
             </div>
           )}
-          <button onClick={cargarHorariosExistentes}
+          <button onClick={() => cargarHorariosExistentes(true)}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white text-xs font-bold transition-all cursor-pointer">
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Actualizar
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} /> Actualizar
           </button>
           <button onClick={() => { setShowUploadModal(true); setParsedData(null); setUploadResult(null) }}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white text-xs font-black shadow-lg shadow-amber-900/30 transition-all cursor-pointer">
@@ -615,7 +713,7 @@ const HorariosView = ({ isDarkMode }) => {
                 🏛️ Todos ({stats.listaAulas.length})
               </button>
               {stats.listaAulas.map(aula => {
-                const isSelected = filtroAula.toUpperCase() === aula.toUpperCase()
+                const isSelected = Boolean(filtroAula && coincidenAulas(filtroAula, aula))
                 const isLab = aula.toLowerCase().includes('lab') || aula.startsWith('S-')
                 return (
                   <button key={aula}

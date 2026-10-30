@@ -183,6 +183,17 @@ export const coincidenAulas = (aulaA, aulaB) => {
   return cleanA.includes(cleanB) || cleanB.includes(cleanA)
 }
 
+/**
+ * Devuelve el nombre institucional canónico de un aula o laboratorio
+ * Ej: "R-205" -> "LABORATORIO R-205", "R-207" -> "BLOQUE R-207"
+ */
+export const getNombreEstandarAula = (aulaStr) => {
+  if (!aulaStr) return ''
+  const str = String(aulaStr).trim()
+  const found = AULAS_LABORATORIOS_MASTER.find(m => coincidenAulas(m, str))
+  return found || str
+}
+
 // Wrapper fetch GAS con timeout
 const fetchGAS = async (url, options = {}) => {
   const controller = new AbortController()
@@ -255,12 +266,14 @@ export const getLocalReservas = () => {
 
 /**
  * Guarda todas las reservas localmente
+ * @param {Array} reservas
+ * @param {boolean} notify - Si es true, notifica a los demás componentes
  */
-export const saveLocalReservas = (reservas) => {
+export const saveLocalReservas = (reservas, notify = true) => {
   try {
     const saneadas = Array.isArray(reservas) ? reservas.map(normalizarReserva) : []
     localStorage.setItem(RESERVAS_STORAGE_KEY, JSON.stringify(saneadas))
-    if (typeof window !== 'undefined') {
+    if (notify && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('epic_reservas_updated', { detail: saneadas }))
     }
   } catch (e) {
@@ -303,7 +316,8 @@ export const obtenerReservas = async () => {
         }
       })
       const merged = Array.from(map.values()).map(normalizarReserva)
-      saveLocalReservas(merged)
+      // Guardar en caché sin disparar evento recursivo de actualización
+      saveLocalReservas(merged, false)
       return { success: true, data: merged }
     }
     return { success: true, data: localData }
