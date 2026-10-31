@@ -33,6 +33,7 @@ const HOJA_DOCENTES = 'MAESTRO_DOCENTES';
 const HOJA_DATOS = 'BASE_DE_DATOS';
 const HOJA_HORARIOS = 'HORARIOS';
 const HOJA_RESERVAS = 'RESERVAS';
+const HOJA_INCIDENCIAS = 'INCIDENCIAS';
 
 // ══════════════ UTILIDADES ══════════════
 
@@ -145,6 +146,10 @@ function doGet(e) {
 
     if (action === 'obtener_reservas') {
       return createJsonResponse({ success: true, data: getReservasSheet() });
+    }
+
+    if (action === 'obtener_incidencias') {
+      return createJsonResponse({ success: true, data: getIncidenciasSheet() });
     }
 
     if (action === 'obtener_horarios') {
@@ -332,6 +337,19 @@ function doPost(e) {
     }
     if (actionPost === 'eliminar_reserva') {
       return createJsonResponse(eliminarReservaSheet(payload.id));
+    }
+
+    // ══════════════════════════════════════════
+    // ACCIONES DE SOPORTE & INCIDENCIAS EN AULA
+    // ══════════════════════════════════════════
+    if (actionPost === 'reportar_incidencia' || actionPost === 'crear_incidencia') {
+      return createJsonResponse(crearIncidenciaSheet(payload));
+    }
+    if (actionPost === 'actualizar_incidencia' || actionPost === 'actualizar_estado_incidencia') {
+      return createJsonResponse(actualizarEstadoIncidenciaSheet(payload));
+    }
+    if (actionPost === 'eliminar_incidencia') {
+      return createJsonResponse(eliminarIncidenciaSheet(payload.id));
     }
     const sheet = getSheet(HOJA_DATOS);
 
@@ -2133,4 +2151,168 @@ function eliminarReservaSheet(id) {
   }
 
   return { success: false, message: 'No se encontró la reserva para eliminar.' };
+}
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO DE SOPORTE E INCIDENCIAS EN AULA (TIEMPO REAL)
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Obtiene la pestaña de incidencias o la crea automáticamente con encabezados si no existe
+ */
+function getSheetIncidencias() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName(HOJA_INCIDENCIAS);
+  if (!sheet) {
+    sheet = ss.insertSheet(HOJA_INCIDENCIAS);
+    sheet.appendRow([
+      'ID',
+      'TIMESTAMP',
+      'FECHA_HORA',
+      'TIPO',
+      'AULA',
+      'DOCENTE_DNI',
+      'DOCENTE_NOMBRE',
+      'ASIGNATURA',
+      'TITULO',
+      'DESCRIPCION',
+      'CATEGORIA',
+      'ESTADO',
+      'ATENDIDO_POR',
+      'NOTA_RESOLUCION',
+      'TIEMPO_RESPUESTA_MIN'
+    ]);
+    sheet.getRange(1, 1, 1, 15).setFontWeight('bold').setBackground('#b91c1c').setFontColor('#ffffff');
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+/**
+ * Consulta todas las incidencias registradas en la hoja INCIDENCIAS
+ */
+function getIncidenciasSheet() {
+  const sheet = getSheetIncidencias();
+  const range = sheet.getDataRange();
+  const data = range.getValues();
+  const displayData = range.getDisplayValues();
+  const incidencias = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const dispRow = displayData[i] || [];
+    if (!row[0]) continue;
+
+    incidencias.push({
+      id: String(row[0]),
+      timestamp: String(dispRow[1] || row[1] || ''),
+      fechaHora: String(dispRow[2] || row[2] || ''),
+      tipo: String(row[3] || 'URGENTE').toUpperCase(),
+      aula: String(row[4] || ''),
+      docenteDni: String(dispRow[5] || row[5] || ''),
+      docenteNombre: String(row[6] || ''),
+      asignatura: String(row[7] || ''),
+      titulo: String(row[8] || ''),
+      descripcion: String(row[9] || ''),
+      categoria: String(row[10] || ''),
+      estado: String(row[11] || 'NUEVO').toUpperCase(),
+      atendidoPor: String(row[12] || ''),
+      notaResolucion: String(row[13] || ''),
+      tiempoRespuestaMin: row[14] ? Number(row[14]) : null
+    });
+  }
+
+  return incidencias.reverse();
+}
+
+/**
+ * Registra una nueva incidencia reportada por un docente o soporte
+ */
+function crearIncidenciaSheet(payload) {
+  const sheet = getSheetIncidencias();
+  const now = new Date();
+  const idGen = payload.id || ('INC-' + Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss'));
+  const timestamp = payload.timestamp || Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  const fechaHora = payload.fechaHora || Utilities.formatDate(now, Session.getScriptTimeZone(), 'dd/MM/yyyy, HH:mm');
+
+  const newRow = [
+    idGen,
+    timestamp,
+    fechaHora,
+    String(payload.tipo || 'URGENTE').toUpperCase(),
+    String(payload.aula || 'Ambiente no especificado'),
+    String(payload.docenteDni || ''),
+    String(payload.docenteNombre || 'Docente'),
+    String(payload.asignatura || ''),
+    String(payload.titulo || 'Incidencia'),
+    String(payload.descripcion || ''),
+    String(payload.categoria || ''),
+    String(payload.estado || 'NUEVO').toUpperCase(),
+    String(payload.atendidoPor || ''),
+    String(payload.notaResolucion || ''),
+    payload.tiempoRespuestaMin ? Number(payload.tiempoRespuestaMin) : ''
+  ];
+
+  sheet.appendRow(newRow);
+
+  return {
+    success: true,
+    message: 'Incidencia registrada con éxito en Google Sheets.',
+    data: { id: idGen }
+  };
+}
+
+/**
+ * Actualiza el estado (EN_CAMINO, RESUELTO, etc.) y notas de resolución de una incidencia
+ */
+function actualizarEstadoIncidenciaSheet(payload) {
+  const sheet = getSheetIncidencias();
+  const data = sheet.getDataRange().getValues();
+  const targetId = String(payload.id || '').trim();
+
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === targetId) {
+      const rowNum = i + 1;
+      if (payload.estado) {
+        sheet.getRange(rowNum, 12).setValue(String(payload.estado).toUpperCase().trim());
+      }
+      if (payload.atendidoPor !== undefined) {
+        sheet.getRange(rowNum, 13).setValue(String(payload.atendidoPor).trim());
+      }
+      if (payload.notaResolucion !== undefined) {
+        sheet.getRange(rowNum, 14).setValue(String(payload.notaResolucion).trim());
+      }
+      if (payload.tiempoRespuestaMin !== undefined && payload.tiempoRespuestaMin !== null) {
+        sheet.getRange(rowNum, 15).setValue(Number(payload.tiempoRespuestaMin));
+      }
+
+      return {
+        success: true,
+        message: 'Incidencia ' + targetId + ' actualizada con éxito.'
+      };
+    }
+  }
+
+  return {
+    success: false,
+    message: 'No se encontró la incidencia con ID: ' + targetId
+  };
+}
+
+/**
+ * Elimina una incidencia de la hoja INCIDENCIAS
+ */
+function eliminarIncidenciaSheet(id) {
+  const sheet = getSheetIncidencias();
+  const data = sheet.getDataRange().getValues();
+  const targetId = String(id || '').trim();
+
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === targetId) {
+      sheet.deleteRow(i + 1);
+      return { success: true, message: 'Incidencia eliminada de Google Sheets.' };
+    }
+  }
+
+  return { success: false, message: 'No se encontró la incidencia para eliminar.' };
 }

@@ -13,6 +13,8 @@ import {
   RefreshCw,
   DoorOpen,
   PlusCircle,
+  Plus,
+  Minus,
   Check,
   XCircle,
   FileText,
@@ -58,6 +60,100 @@ const HORAS_FRANJAS = []
 for (let h = 7; h <= 21; h++) {
   HORAS_FRANJAS.push(`${String(h).padStart(2, '0')}:00`)
   HORAS_FRANJAS.push(`${String(h).padStart(2, '0')}:30`)
+}
+
+function minutosToHora(min) {
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+const mapDiasCanonicos = {
+  'lunes': 'Lunes',
+  'martes': 'Martes',
+  'miercoles': 'Miércoles',
+  'jueves': 'Jueves',
+  'viernes': 'Viernes',
+  'sabado': 'Sábado',
+  'domingo': 'Domingo'
+}
+
+const getDiaCanonico = (d) => {
+  if (!d) return ''
+  const norm = normalizarDia(d)
+  return mapDiasCanonicos[norm] || d
+}
+
+const buildGridDataForAula = (aula, horariosFuente, listaReservas) => {
+  const fuenteHorarios = (horariosFuente && horariosFuente.length > 0) ? horariosFuente : (HORARIOS_DEFAULT || [])
+  const clasesAula = fuenteHorarios.filter(h => coincidenAulas(h.AULA || h.aula, aula))
+
+  const reservasAula = (listaReservas || [])
+    .map(normalizarReserva)
+    .filter(r => r.estado !== 'RECHAZADA' && coincidenAulas(r.aula, aula))
+
+  const porDia = {}
+  DIAS_SEMANA.forEach(d => {
+    porDia[d] = []
+  })
+
+  // Insertar clases regulares del semestre con normalización tolerante
+  clasesAula.forEach(c => {
+    const dia = getDiaCanonico(c.DIA || c.dia || '')
+    const hIni = formatHora(c.HORA_INICIO || c.hora_inicio || c.horaInicio)
+    const hFin = formatHora(c.HORA_FIN || c.hora_fin || c.horaFin)
+
+    if (porDia[dia] && hIni && hFin) {
+      porDia[dia].push({
+        tipoItem: 'CLASE_REGULAR',
+        id: `clase_${c.CODIGO || c.codigo || 'c'}_${dia}_${hIni}`,
+        codigo: c.CODIGO || c.codigo || '',
+        curso: c.CURSO || c.curso || 'Clase Semestre',
+        docente: c.DOCENTE || c.docente || '',
+        seccion: c.SECCION || c.seccion || 'A',
+        ciclo: String(c.CICLO || c.ciclo || '1'),
+        horaInicio: hIni,
+        horaFin: hFin,
+        aula: c.AULA || c.aula || aula
+      })
+    }
+  })
+
+  // Insertar reservas (Aprobadas y Pendientes) con normalización tolerante
+  reservasAula.forEach(r => {
+    const dia = getDiaCanonico(r.diaSemana || getDiaSemanaFromDate(r.fecha) || 'Lunes')
+    const hIni = formatHora(r.horaInicio)
+    const hFin = formatHora(r.horaFin)
+
+    if (porDia[dia] && hIni && hFin) {
+      porDia[dia].push({
+        tipoItem: 'RESERVA',
+        id: r.id,
+        codigo: r.estado === 'APROBADA' ? 'RES-CONF' : 'RES-PEND',
+        curso: r.asignatura || 'Reserva de Ambiente',
+        docente: r.docente || r.docenteNombre || 'Docente',
+        motivo: r.motivo || '',
+        tipoReserva: r.tipoReserva,
+        fecha: r.fecha,
+        estado: r.estado,
+        horaInicio: hIni,
+        horaFin: hFin,
+        aula: r.aula
+      })
+    }
+  })
+
+  const franjas = HORAS_FRANJAS.map(f => ({
+    label: f,
+    minutos: horaToMinutos(f)
+  }))
+
+  return {
+    porDia,
+    franjas,
+    totalClases: clasesAula.length,
+    totalReservas: reservasAula.length
+  }
 }
 
 export default function ReservasView({ isDarkMode = true }) {
@@ -199,10 +295,21 @@ export default function ReservasView({ isDarkMode = true }) {
 
   // Abrir modal de reserva manual pre-llenando espacio libre clicado
   const handleEspacioLibreClick = (dia, franjaHora) => {
-    const [h, m] = franjaHora.split(':').map(Number)
-    const finH = h + 2
-    const horaFinCalc = `${String(finH).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+    const slotMin = horaToMinutos(franjaHora)
+    const itemsDia = gridCalendarioPrincipal?.porDia?.[dia] || []
     const fechaCalc = getDateForDayOfWeek(dia)
+
+    let maxFinMin = slotMin + 150 // 2.5 horas por defecto
+    const ocupadasDespues = itemsDia.filter(item => horaToMinutos(item.horaInicio) > slotMin)
+    if (ocupadasDespues.length > 0) {
+      const proxClaseMin = Math.min(...ocupadasDespues.map(o => horaToMinutos(o.horaInicio)))
+      if (proxClaseMin < maxFinMin) {
+        maxFinMin = proxClaseMin
+      }
+    }
+    if (maxFinMin > 22 * 60) maxFinMin = 22 * 60
+
+    const horaFinCalc = minutosToHora(maxFinMin)
 
     setManualForm(prev => ({
       ...prev,
@@ -213,11 +320,142 @@ export default function ReservasView({ isDarkMode = true }) {
       fechaInicio: fechaCalc,
       fechaFin: SEMESTRE_CONFIG.fechaFin || '2026-12-18',
       horaInicio: franjaHora,
-      horaFin: horaFinCalc > '22:00' ? '22:00' : horaFinCalc
+      horaFin: horaFinCalc
     }))
     setModalErrorMsg('')
     setModalSuccessMsg('')
     setShowCreateModal(true)
+  }
+
+  // Manejar clic en un bloque libre dentro del cronograma interactivo del modal
+  const handleModalSlotClick = (dia, slotHora) => {
+    const slotMin = horaToMinutos(slotHora)
+    const itemsDia = gridModalManual?.porDia?.[dia] || []
+    const fechaCalculada = getDateForDayOfWeek(dia)
+
+    // Si se hace clic en otro día:
+    if (manualForm.diaSemana !== dia) {
+      let maxFinMin = slotMin + 150
+      const ocupadasDespues = itemsDia.filter(item => horaToMinutos(item.horaInicio) > slotMin)
+      if (ocupadasDespues.length > 0) {
+        const proxClaseMin = Math.min(...ocupadasDespues.map(o => horaToMinutos(o.horaInicio)))
+        if (proxClaseMin < maxFinMin) maxFinMin = proxClaseMin
+      }
+      if (maxFinMin > 22 * 60) maxFinMin = 22 * 60
+
+      const horaFinStr = minutosToHora(maxFinMin)
+      setManualForm(prev => ({
+        ...prev,
+        diaSemana: dia,
+        fecha: fechaCalculada,
+        fechaInicio: fechaCalculada,
+        horaInicio: slotHora,
+        horaFin: horaFinStr
+      }))
+      setModalErrorMsg('')
+      return
+    }
+
+    // En el mismo día: extender o iniciar
+    const currIni = horaToMinutos(manualForm.horaInicio)
+    if (slotMin >= currIni) {
+      const newFinMin = slotMin + 30
+      const newFinStr = minutosToHora(newFinMin)
+      const hayCruce = itemsDia.some(item =>
+        solapanHoras(manualForm.horaInicio, newFinStr, item.horaInicio, item.horaFin)
+      )
+      if (hayCruce) {
+        let maxFinMin = slotMin + 150
+        const ocupadasDespues = itemsDia.filter(item => horaToMinutos(item.horaInicio) > slotMin)
+        if (ocupadasDespues.length > 0) {
+          const proxClaseMin = Math.min(...ocupadasDespues.map(o => horaToMinutos(o.horaInicio)))
+          if (proxClaseMin < maxFinMin) maxFinMin = proxClaseMin
+        }
+        if (maxFinMin > 22 * 60) maxFinMin = 22 * 60
+        const horaFinStr = minutosToHora(maxFinMin)
+        setManualForm(prev => ({
+          ...prev,
+          horaInicio: slotHora,
+          horaFin: horaFinStr
+        }))
+        setModalErrorMsg('')
+        return
+      }
+      setManualForm(prev => ({ ...prev, horaFin: newFinStr }))
+      setModalErrorMsg('')
+    } else {
+      const newIniStr = slotHora
+      const hayCruce = itemsDia.some(item =>
+        solapanHoras(newIniStr, manualForm.horaFin, item.horaInicio, item.horaFin)
+      )
+      if (hayCruce) {
+        let maxFinMin = slotMin + 150
+        const ocupadasDespues = itemsDia.filter(item => horaToMinutos(item.horaInicio) > slotMin)
+        if (ocupadasDespues.length > 0) {
+          const proxClaseMin = Math.min(...ocupadasDespues.map(o => horaToMinutos(o.horaInicio)))
+          if (proxClaseMin < maxFinMin) maxFinMin = proxClaseMin
+        }
+        if (maxFinMin > 22 * 60) maxFinMin = 22 * 60
+        const horaFinStr = minutosToHora(maxFinMin)
+        setManualForm(prev => ({
+          ...prev,
+          horaInicio: slotHora,
+          horaFin: horaFinStr
+        }))
+        setModalErrorMsg('')
+        return
+      }
+      setManualForm(prev => ({ ...prev, horaInicio: newIniStr }))
+      setModalErrorMsg('')
+    }
+  }
+
+  // Ajustar duración con botones rápidos (+30m, -30m)
+  const ajustarDuracionMinutos = (deltaMin) => {
+    const iniMin = horaToMinutos(manualForm.horaInicio)
+    const finMin = horaToMinutos(manualForm.horaFin)
+    const nuevoFinMin = finMin + deltaMin
+
+    if (nuevoFinMin <= iniMin) return
+    if (nuevoFinMin > 22 * 60) return
+
+    const nuevoFinStr = minutosToHora(nuevoFinMin)
+    const itemsDia = gridModalManual?.porDia?.[manualForm.diaSemana] || []
+
+    const hayCruce = itemsDia.some(item =>
+      solapanHoras(manualForm.horaInicio, nuevoFinStr, item.horaInicio, item.horaFin)
+    )
+
+    if (hayCruce) {
+      setModalErrorMsg('No se puede extender más: choca con una clase u ocupación.')
+      return
+    }
+
+    setManualForm(prev => ({ ...prev, horaFin: nuevoFinStr }))
+    setModalErrorMsg('')
+  }
+
+  // Ajustar duración por preset de horas (2h, 2.5h, 3h)
+  const setDuracionPreset = (horas) => {
+    const iniMin = horaToMinutos(manualForm.horaInicio)
+    const nuevoFinMin = iniMin + Math.round(horas * 60)
+
+    if (nuevoFinMin > 22 * 60) return
+
+    const nuevoFinStr = minutosToHora(nuevoFinMin)
+    const itemsDia = gridModalManual?.porDia?.[manualForm.diaSemana] || []
+
+    const hayCruce = itemsDia.some(item =>
+      solapanHoras(manualForm.horaInicio, nuevoFinStr, item.horaInicio, item.horaFin)
+    )
+
+    if (hayCruce) {
+      setModalErrorMsg(`No hay suficiente espacio continuo para ${horas} horas en este horario.`)
+      return
+    }
+
+    setManualForm(prev => ({ ...prev, horaFin: nuevoFinStr }))
+    setModalErrorMsg('')
   }
 
   // Guardar reserva manual (Directora)
@@ -371,70 +609,15 @@ export default function ReservasView({ isDarkMode = true }) {
   }, [reservas, searchTerm, filtroEstado])
 
   // ══════════════════════════════════════════════════════════
-  // ESTRUCTURA DE LA GRILLA DE AMBIENTES (Clases + Reservas + Libres)
+  // ESTRUCTURA DE GRILLAS REACTIVAS (Calendario Principal y Modal)
   // ══════════════════════════════════════════════════════════
-  const gridAmbienteData = useMemo(() => {
-    // 1. Clases regulares del horario para este aula
-    const clasesAula = horariosList.filter(h => coincidenAulas(h.AULA || h.aula, filtroAula))
+  const gridCalendarioPrincipal = useMemo(() => {
+    return buildGridDataForAula(filtroAula, horariosList, reservas)
+  }, [filtroAula, horariosList, reservas])
 
-    // 2. Reservas aprobadas y pendientes para este aula
-    const reservasAula = reservas
-      .map(normalizarReserva)
-      .filter(r => r.estado !== 'RECHAZADA' && coincidenAulas(r.aula, filtroAula))
-
-    // Mapear elementos por día
-    const porDia = {}
-    DIAS_SEMANA.forEach(d => {
-      porDia[d] = []
-    })
-
-    // Insertar clases regulares
-    clasesAula.forEach(c => {
-      const dia = c.DIA || c.dia || ''
-      if (porDia[dia]) {
-        porDia[dia].push({
-          tipoItem: 'CLASE_REGULAR',
-          id: `clase_${c.CODIGO}_${dia}_${c.HORA_INICIO}`,
-          codigo: c.CODIGO || c.codigo || '',
-          curso: c.CURSO || c.curso || '',
-          docente: c.DOCENTE || c.docente || '',
-          seccion: c.SECCION || c.seccion || '',
-          ciclo: c.CICLO || c.ciclo || '1',
-          horaInicio: (c.HORA_INICIO || c.hora_inicio || '').slice(0, 5),
-          horaFin: (c.HORA_FIN || c.hora_fin || '').slice(0, 5),
-          aula: c.AULA || c.aula || ''
-        })
-      }
-    })
-
-    // Insertar reservas (Aprobadas y Pendientes)
-    reservasAula.forEach(r => {
-      const dia = r.diaSemana || getDiaSemanaFromDate(r.fecha) || 'Lunes'
-      if (porDia[dia]) {
-        porDia[dia].push({
-          tipoItem: 'RESERVA',
-          id: r.id,
-          codigo: r.estado === 'APROBADA' ? 'RES-CONF' : 'RES-PEND',
-          curso: r.asignatura,
-          docente: r.docente,
-          motivo: r.motivo,
-          tipoReserva: r.tipoReserva,
-          fecha: r.fecha,
-          estado: r.estado,
-          horaInicio: formatHora(r.horaInicio),
-          horaFin: formatHora(r.horaFin),
-          aula: r.aula
-        })
-      }
-    })
-
-    const franjas = HORAS_FRANJAS.map(f => ({
-      label: f,
-      minutos: horaToMinutos(f)
-    }))
-
-    return { porDia, franjas, totalClases: clasesAula.length, totalReservas: reservasAula.length }
-  }, [horariosList, reservas, filtroAula])
+  const gridModalManual = useMemo(() => {
+    return buildGridDataForAula(manualForm.aula, horariosList, reservas)
+  }, [manualForm.aula, horariosList, reservas])
 
   return (
     <div className="space-y-5">
@@ -628,7 +811,7 @@ export default function ReservasView({ isDarkMode = true }) {
               </span>
               <span className="text-white/40">•</span>
               <span className="text-white/60">
-                {gridAmbienteData.totalClases} clases regulares + {gridAmbienteData.totalReservas} reservas
+                {gridCalendarioPrincipal.totalClases} clases regulares + {gridCalendarioPrincipal.totalReservas} reservas
               </span>
             </div>
             <div className="flex items-center gap-3 text-[11px]">
@@ -677,7 +860,7 @@ export default function ReservasView({ isDarkMode = true }) {
 
                 {/* Franjas Horarias */}
                 <div className="relative">
-                  {gridAmbienteData.franjas.map((franja, fIdx) => (
+                  {gridCalendarioPrincipal.franjas.map((franja, fIdx) => (
                     <div
                       key={franja.label}
                       className={`grid grid-cols-[80px_repeat(6,1fr)] ${fIdx % 2 === 0 ? 'border-t border-white/5' : ''}`}
@@ -692,10 +875,13 @@ export default function ReservasView({ isDarkMode = true }) {
 
                       {/* Columnas Días */}
                       {DIAS_SEMANA.map(dia => {
-                        const itemsDelDia = gridAmbienteData.porDia[dia] || []
+                        const itemsDelDia = gridCalendarioPrincipal.porDia[dia] || []
+                        const franjaMin = franja.minutos
+
+                        // Items que inician en esta franja
                         const itemsEnFranja = itemsDelDia.filter(item => {
                           const iniMin = horaToMinutos(item.horaInicio)
-                          return iniMin >= franja.minutos && iniMin < franja.minutos + 30
+                          return iniMin >= franjaMin && iniMin < franjaMin + 30
                         })
                         const totalEnFranja = itemsEnFranja.length
 
@@ -703,7 +889,7 @@ export default function ReservasView({ isDarkMode = true }) {
                         const celdaOcupada = itemsDelDia.some(item => {
                           const ini = horaToMinutos(item.horaInicio)
                           const fin = horaToMinutos(item.horaFin)
-                          return franja.minutos >= ini && franja.minutos < fin
+                          return Math.max(franjaMin, ini) < Math.min(franjaMin + 30, fin)
                         })
 
                         return (
@@ -717,10 +903,14 @@ export default function ReservasView({ isDarkMode = true }) {
                               <button
                                 type="button"
                                 onClick={() => handleEspacioLibreClick(dia, franja.label)}
-                                className="absolute inset-0.5 rounded-lg border border-dashed border-emerald-500/20 hover:border-emerald-400 hover:bg-emerald-500/15 transition-all opacity-0 group-hover:opacity-100 flex items-center justify-center text-[10px] text-emerald-300 font-bold z-0 cursor-pointer"
+                                className="w-full h-full p-1 rounded-lg border border-dashed border-emerald-500/20 hover:border-emerald-400 hover:bg-emerald-500/20 text-emerald-400/60 hover:text-emerald-300 text-[10px] font-bold transition-all flex items-center justify-center cursor-pointer group z-0"
                                 title={`Clic para reservar ${filtroAula} el ${dia} a las ${franja.label}`}
                               >
-                                + Reservar
+                                <span className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5">
+                                  <PlusCircle className="w-3 h-3 text-emerald-300" />
+                                  <span>{franja.label}</span>
+                                </span>
+                                <span className="group-hover:hidden text-[9px] opacity-40">+ Libre</span>
                               </button>
                             )}
 
@@ -729,8 +919,8 @@ export default function ReservasView({ isDarkMode = true }) {
                               const iniMin = horaToMinutos(item.horaInicio)
                               const finMin = horaToMinutos(item.horaFin)
                               const duracion = finMin - iniMin
-                              const offsetTop = ((iniMin - franja.minutos) / 30) * ROW_HEIGHT
-                              const cellHeight = (duracion / 30) * ROW_HEIGHT - 2
+                              const offsetTop = ((iniMin - franjaMin) / 30) * ROW_HEIGHT
+                              const cellHeight = Math.max((duracion / 30) * ROW_HEIGHT - 2, 28)
                               const widthPercent = totalEnFranja > 1 ? 100 / totalEnFranja : 100
                               const leftPercent = totalEnFranja > 1 ? idx * widthPercent : 0
 
@@ -752,41 +942,46 @@ export default function ReservasView({ isDarkMode = true }) {
                                     className={`w-full h-full rounded-xl p-2 flex flex-col justify-between overflow-hidden shadow-md text-left transition-all ${
                                       isReserva
                                         ? isAprobada
-                                          ? 'bg-gradient-to-br from-emerald-600/90 to-teal-700/90 border-2 border-emerald-300 text-white shadow-emerald-950/60 ring-1 ring-emerald-400'
-                                          : 'bg-gradient-to-br from-amber-600/80 to-amber-700/80 border-2 border-amber-300 text-white'
-                                        : 'bg-gradient-to-br from-blue-900/40 to-indigo-950/60 border border-blue-500/30 text-slate-200 hover:border-blue-400'
+                                          ? 'bg-gradient-to-br from-emerald-950/95 to-teal-950/95 border-2 border-emerald-400 text-emerald-100 shadow-lg shadow-emerald-950/60 ring-1 ring-emerald-400/50'
+                                          : 'bg-gradient-to-br from-amber-950/95 to-yellow-950/95 border-2 border-amber-400 text-amber-100 shadow-md'
+                                        : 'bg-gradient-to-br from-blue-950/95 to-indigo-950/95 border border-blue-500/50 text-blue-100 shadow-md hover:border-blue-300'
                                     }`}
+                                    title={`${item.curso}\nDocente: ${item.docente}\nHorario: ${item.horaInicio} - ${item.horaFin}`}
                                   >
                                     <div>
                                       <div className="flex items-center justify-between gap-1">
                                         <span className={`px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider ${
                                           isReserva
                                             ? isAprobada
-                                              ? 'bg-black/40 text-emerald-200 border border-emerald-300/40'
-                                              : 'bg-black/40 text-amber-200 border border-amber-300/40'
-                                            : 'bg-white/10 text-blue-200'
+                                              ? 'bg-emerald-500/30 text-emerald-200 border border-emerald-300/40'
+                                              : 'bg-amber-500/30 text-amber-200 border border-amber-300/40'
+                                            : 'bg-blue-500/25 text-blue-300 border border-blue-400/30'
                                         }`}>
-                                          {isReserva ? (isAprobada ? '🟢 RESERVA CONFIRMADA' : '🟡 RESERVA PENDIENTE') : `CLASE CICLO ${item.ciclo}`}
+                                          {isReserva ? (isAprobada ? '🟢 RESERVA APROBADA' : '🟡 SOLICITUD PENDIENTE') : `CLASE CICLO ${item.ciclo}`}
                                         </span>
-                                        <span className="text-[10px] font-mono font-bold opacity-80">
+                                        <span className="text-[10px] font-mono font-bold opacity-90">
                                           {item.horaInicio} - {item.horaFin}
                                         </span>
                                       </div>
 
-                                      <p className="font-bold text-[11px] leading-tight mt-1 line-clamp-1">
+                                      <p className="font-bold text-[11px] leading-tight mt-1 line-clamp-2">
                                         {item.curso}
                                       </p>
                                     </div>
 
                                     <div>
-                                      <p className="text-[10px] opacity-90 truncate font-medium">
+                                      <p className="text-[10px] opacity-80 truncate font-medium">
                                         👤 {item.docente}
                                       </p>
-                                      {isReserva && item.motivo && (
+                                      {isReserva && item.motivo ? (
                                         <p className="text-[9px] opacity-75 truncate italic mt-0.5">
                                           &ldquo;{item.motivo}&rdquo;
                                         </p>
-                                      )}
+                                      ) : item.seccion ? (
+                                        <span className="text-[9px] font-mono opacity-60">
+                                          Sec. {item.seccion}
+                                        </span>
+                                      ) : null}
                                     </div>
                                   </div>
                                 </div>
@@ -1092,7 +1287,7 @@ export default function ReservasView({ isDarkMode = true }) {
       {/* ═══════════════════════════════════════════════════════ */}
       <AnimatePresence>
         {showCreateModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1105,23 +1300,31 @@ export default function ReservasView({ isDarkMode = true }) {
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="relative z-10 w-full max-w-2xl rounded-3xl bg-[#090f1d] border border-emerald-500/40 p-5 sm:p-7 shadow-2xl text-white space-y-4 max-h-[92vh] overflow-y-auto custom-scrollbar"
+              className="relative z-10 w-full max-w-5xl rounded-3xl bg-[#090f1d] border border-emerald-500/40 p-4 sm:p-6 shadow-2xl text-white space-y-3.5 max-h-[95vh] overflow-y-auto custom-scrollbar"
             >
+              {/* Header */}
               <div className="flex items-start justify-between border-b border-white/10 pb-3">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-400 flex items-center justify-center font-bold">
                     <PlusCircle className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-base font-black text-white">Separación Manual de Ambiente</h3>
-                    <p className="text-xs text-white/50">Asignar directamente un salón o laboratorio a un docente</p>
+                    <h3 className="text-base font-black text-white flex items-center gap-2">
+                      Separación Manual de Ambiente
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                        Dirección EPIC
+                      </span>
+                    </h3>
+                    <p className="text-xs text-white/50">
+                      Selecciona directamente los bloques libres en el cronograma semanal del ambiente
+                    </p>
                   </div>
                 </div>
 
                 <button
                   type="button"
                   onClick={() => !savingManual && setShowCreateModal(false)}
-                  className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/60 hover:text-white"
+                  className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white/60 hover:text-white cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1141,16 +1344,17 @@ export default function ReservasView({ isDarkMode = true }) {
                 </div>
               )}
 
-              <form onSubmit={handleSaveManualReserva} className="space-y-3.5 text-xs">
-                {/* Docente */}
+              {/* Selector de Docente y Ambiente */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-white/80 mb-1">
-                    Docente Asignado <span className="text-red-400">*</span>
+                  <label className="block text-[11px] font-bold text-white/80 mb-1 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Docente Asignado</span> <span className="text-red-400">*</span>
                   </label>
                   <select
                     value={manualForm.dni}
                     onChange={e => handleDocenteManualChange(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-medium focus:outline-none focus:border-emerald-400 text-xs cursor-pointer"
+                    className="w-full px-3 py-2 rounded-xl bg-black/60 border border-white/20 text-white font-medium focus:outline-none focus:border-emerald-400 text-xs cursor-pointer"
                     required
                   >
                     <option value="">-- Seleccionar Docente --</option>
@@ -1162,149 +1366,419 @@ export default function ReservasView({ isDarkMode = true }) {
                   </select>
                 </div>
 
-                {/* Ambiente y Modalidad */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-white/80 mb-1">
-                      Salón / Laboratorio <span className="text-red-400">*</span>
-                    </label>
-                    <select
-                      value={manualForm.aula}
-                      onChange={e => setManualForm({ ...manualForm, aula: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-medium focus:outline-none focus:border-emerald-400 text-xs cursor-pointer"
-                      required
-                    >
-                      {AULAS_LABORATORIOS_MASTER.map(a => (
+                <div>
+                  <label className="block text-[11px] font-bold text-white/80 mb-1 flex items-center gap-1.5">
+                    <DoorOpen className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Salón / Laboratorio</span> <span className="text-red-400">*</span>
+                  </label>
+                  <select
+                    value={manualForm.aula}
+                    onChange={e => setManualForm(prev => ({ ...prev, aula: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl bg-black/60 border border-emerald-500/40 text-emerald-200 font-bold text-xs cursor-pointer focus:outline-none focus:border-emerald-300"
+                    required
+                  >
+                    <optgroup label="🔬 Laboratorios Especializados (Civil)">
+                      {AULAS_LABORATORIOS_MASTER.filter(a => !a.startsWith('BLOQUE')).map(a => (
                         <option key={a} value={a}>{a}</option>
                       ))}
-                    </select>
+                    </optgroup>
+                    <optgroup label="🏛️ Aulas Teóricas">
+                      {AULAS_LABORATORIOS_MASTER.filter(a => a.startsWith('BLOQUE')).map(a => (
+                        <option key={a} value={a}>{a}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+              </div>
+
+              {/* Barra informativa del ambiente en el modal */}
+              <div className="p-2.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span className="text-white font-medium">
+                    Horario de: <strong className="text-emerald-300 font-black">{manualForm.aula}</strong>
+                  </span>
+                  <span className="text-white/40">•</span>
+                  <span className="text-emerald-300 font-bold text-[11px]">
+                    Seleccionado: {manualForm.diaSemana} de {manualForm.horaInicio} a {manualForm.horaFin}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3 text-[10px] shrink-0">
+                  <span className="flex items-center gap-1 text-slate-300">
+                    <span className="w-2 h-2 rounded-sm bg-blue-600/40 border border-blue-400/50" />
+                    Ocupado (Clase)
+                  </span>
+                  <span className="flex items-center gap-1 text-emerald-300">
+                    <span className="w-2 h-2 rounded-sm bg-emerald-500/60 border border-emerald-400" />
+                    Reserva Aprobada
+                  </span>
+                  <span className="flex items-center gap-1 text-amber-300">
+                    <span className="w-2 h-2 rounded-sm bg-amber-500/40 border border-amber-400" />
+                    Pendiente
+                  </span>
+                  <span className="flex items-center gap-1 text-emerald-300">
+                    <span className="w-2 h-2 rounded-sm border border-dashed border-emerald-400 bg-emerald-500/20" />
+                    Espacio Libre
+                  </span>
+                </div>
+              </div>
+
+              {/* GRILLA INTERACTIVA DENTRO DEL MODAL (IGUAL A PANEL DOCENTE) */}
+              <div className="rounded-2xl border border-white/10 overflow-hidden bg-white/[0.02]">
+                <div className="overflow-x-auto max-h-[38vh] custom-scrollbar">
+                  <div className="min-w-[850px]">
+                    {/* Header Días */}
+                    <div className="grid grid-cols-[70px_repeat(6,1fr)] border-b border-white/10 bg-white/[0.04] sticky top-0 z-20 backdrop-blur-md">
+                      <div className="p-2 flex items-center justify-center">
+                        <Clock className="w-3.5 h-3.5 text-white/40" />
+                      </div>
+                      {DIAS_SEMANA.map(dia => (
+                        <div
+                          key={dia}
+                          className={`p-2 text-center border-l border-white/5 transition-colors ${
+                            manualForm.diaSemana === dia
+                              ? 'bg-emerald-500/20 text-emerald-300 font-bold'
+                              : 'text-white/60'
+                          }`}
+                        >
+                          <p className="text-[11px] font-black uppercase tracking-wider">{dia}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Franjas */}
+                    <div className="relative">
+                      {HORAS_FRANJAS.map((franja, fIdx) => {
+                        const franjaMin = horaToMinutos(franja)
+
+                        return (
+                          <div
+                            key={franja}
+                            className={`grid grid-cols-[70px_repeat(6,1fr)] ${
+                              fIdx % 2 === 0 ? 'border-t border-white/5' : ''
+                            }`}
+                            style={{ height: `${ROW_HEIGHT}px` }}
+                          >
+                            {/* Hora */}
+                            <div className="flex items-center justify-end pr-2 border-r border-white/5">
+                              {franja.endsWith(':00') && (
+                                <span className="text-[10px] font-mono font-bold text-white/40">{franja}</span>
+                              )}
+                            </div>
+
+                            {/* Días */}
+                            {DIAS_SEMANA.map(dia => {
+                              const itemsDia = gridModalManual?.porDia?.[dia] || []
+
+                              const itemsQueInicianAqui = itemsDia.filter(item => {
+                                const ini = horaToMinutos(item.horaInicio)
+                                return ini >= franjaMin && ini < franjaMin + 30
+                              })
+
+                              const celdaOcupada = itemsDia.some(item => {
+                                const ini = horaToMinutos(item.horaInicio)
+                                const fin = horaToMinutos(item.horaFin)
+                                return Math.max(franjaMin, ini) < Math.min(franjaMin + 30, fin)
+                              })
+
+                              const selIni = manualForm.diaSemana === dia ? horaToMinutos(manualForm.horaInicio) : null
+                              const selFin = manualForm.diaSemana === dia ? horaToMinutos(manualForm.horaFin) : null
+                              const isSelectedInSlot =
+                                selIni !== null && selFin !== null &&
+                                Math.max(franjaMin, selIni) < Math.min(franjaMin + 30, selFin)
+
+                              const esInicioSeleccion =
+                                selIni !== null && selFin !== null &&
+                                selIni >= franjaMin && selIni < franjaMin + 30
+
+                              return (
+                                <div
+                                  key={dia}
+                                  className={`relative border-l border-white/5 transition-all ${
+                                    manualForm.diaSemana === dia ? 'bg-emerald-500/[0.03]' : ''
+                                  }`}
+                                  style={{ height: `${ROW_HEIGHT}px` }}
+                                >
+                                  {/* Clases o Reservas que inician aquí */}
+                                  {itemsQueInicianAqui.map(item => {
+                                    const iniMin = horaToMinutos(item.horaInicio)
+                                    const finMin = horaToMinutos(item.horaFin)
+                                    const duracion = finMin - iniMin
+                                    const offsetTop = ((iniMin - franjaMin) / 30) * ROW_HEIGHT
+                                    const height = Math.max((duracion / 30) * ROW_HEIGHT - 2, 28)
+
+                                    const isClase = item.tipoItem === 'CLASE_REGULAR'
+                                    const isAprobada = item.estado === 'APROBADA'
+
+                                    return (
+                                      <div
+                                        key={item.id}
+                                        className={`absolute inset-x-0.5 z-10 rounded-xl p-1.5 flex flex-col justify-between overflow-hidden shadow-md border ${
+                                          isClase
+                                            ? 'bg-blue-950/95 border-blue-500/50 text-blue-200'
+                                            : isAprobada
+                                              ? 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200'
+                                              : 'bg-amber-950/95 border-amber-500/50 text-amber-200'
+                                        }`}
+                                        style={{
+                                          top: `${offsetTop + 1}px`,
+                                          height: `${height}px`
+                                        }}
+                                        title={`${item.curso}\nDocente: ${item.docente}\nHorario: ${item.horaInicio} - ${item.horaFin}`}
+                                      >
+                                        <div className="flex items-center justify-between text-[9px] font-mono font-bold opacity-80">
+                                          <span>{item.horaInicio} - {item.horaFin}</span>
+                                          <span className="px-1 py-0.2 rounded bg-black/40 text-[8px] uppercase">
+                                            {isClase ? 'CLASE' : item.estado || 'RESERVA'}
+                                          </span>
+                                        </div>
+                                        <p className="font-bold text-[10px] leading-tight line-clamp-2 mt-0.5">
+                                          {item.curso}
+                                        </p>
+                                        <p className="text-[9px] opacity-60 truncate">
+                                          {item.docente}
+                                        </p>
+                                      </div>
+                                    )
+                                  })}
+
+                                  {/* Celda seleccionada (glowing selection) */}
+                                  {esInicioSeleccion && (
+                                    <div
+                                      onClick={() => handleModalSlotClick(dia, franja)}
+                                      className="absolute inset-x-0.5 z-20 rounded-xl p-2 flex flex-col justify-between overflow-hidden shadow-xl border-2 border-emerald-400 bg-gradient-to-br from-emerald-600/95 to-teal-700/95 text-white cursor-pointer ring-2 ring-emerald-400/50 animate-pulse"
+                                      style={{
+                                        top: `${((selIni - franjaMin) / 30) * ROW_HEIGHT + 1}px`,
+                                        height: `${Math.max(((selFin - selIni) / 30) * ROW_HEIGHT - 2, 28)}px`
+                                      }}
+                                    >
+                                      <div className="flex items-center justify-between text-[10px] font-black tracking-wide">
+                                        <span>✨ SELECCIÓN PARA DOCENTE</span>
+                                        <span className="px-1.5 py-0.2 rounded bg-black/40 font-mono text-[9px]">
+                                          {manualForm.horaInicio} - {manualForm.horaFin}
+                                        </span>
+                                      </div>
+                                      <div className="mt-auto">
+                                        <p className="text-[11px] font-black leading-tight line-clamp-1">
+                                          {manualForm.asignatura || 'Clase / Práctica'}
+                                        </p>
+                                        <p className="text-[9px] text-emerald-200 mt-0.5">
+                                          {manualForm.docente ? `👤 ${manualForm.docente}` : 'Seleccione docente arriba'} • {((selFin - selIni) / 60).toFixed(1)} hrs
+                                        </p>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Celda libre (botón interactivo para elegir hora) */}
+                                  {!celdaOcupada && !isSelectedInSlot && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleModalSlotClick(dia, franja)}
+                                      className="w-full h-full p-1 rounded-lg border border-dashed border-emerald-500/25 hover:border-emerald-400 hover:bg-emerald-500/20 text-emerald-400/60 hover:text-emerald-300 text-[10px] font-bold transition-all flex items-center justify-center cursor-pointer group"
+                                      title={`Clic para seleccionar desde las ${franja} el ${dia}`}
+                                    >
+                                      <span className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5">
+                                        <Plus className="w-3 h-3" />
+                                        <span>{franja}</span>
+                                      </span>
+                                      <span className="group-hover:hidden text-[9px] opacity-40">+ Libre</span>
+                                    </button>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Formulario de confirmación con controles rápidos */}
+              <form onSubmit={handleSaveManualReserva} className="space-y-3 text-xs">
+                {/* Resumen del bloque y controles de extensión de tiempo */}
+                <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 flex items-center justify-center font-black">
+                      ✓
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-white font-black text-sm">{manualForm.aula}</span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-slate-950">
+                          {manualForm.diaSemana} {manualForm.horaInicio} – {manualForm.horaFin}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-300/80 mt-0.5">
+                        Duración: <strong>{((horaToMinutos(manualForm.horaFin) - horaToMinutos(manualForm.horaInicio)) / 60).toFixed(1)} horas académicas</strong>
+                      </p>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-white/80 mb-1">
-                      Modalidad
-                    </label>
-                    <select
-                      value={manualForm.tipoReserva}
-                      onChange={e => setManualForm({ ...manualForm, tipoReserva: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-medium focus:outline-none focus:border-emerald-400 text-xs cursor-pointer"
+                  {/* Botones de ajuste rápido */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] text-white/50 font-bold mr-1">Ajustar:</span>
+                    <button
+                      type="button"
+                      onClick={() => ajustarDuracionMinutos(-30)}
+                      className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white text-xs font-mono font-bold cursor-pointer"
+                      title="Reducir 30 minutos"
                     >
-                      <option value="RECURRENTE">Recurrente (Rango de fechas)</option>
-                      <option value="UNICA">Única Vez (Fecha específica)</option>
-                    </select>
+                      − 30m
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => ajustarDuracionMinutos(30)}
+                      className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white text-xs font-mono font-bold cursor-pointer"
+                      title="Extender 30 minutos"
+                    >
+                      + 30m
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDuracionPreset(2)}
+                      className="px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-mono font-bold cursor-pointer"
+                    >
+                      2h
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDuracionPreset(2.5)}
+                      className="px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-mono font-bold cursor-pointer"
+                    >
+                      2.5h
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDuracionPreset(3)}
+                      className="px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-mono font-bold cursor-pointer"
+                    >
+                      3h
+                    </button>
                   </div>
                 </div>
 
-                {/* Fechas / Días */}
-                {manualForm.tipoReserva === 'UNICA' ? (
+                {/* Modalidad y Fechas */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-white/80 mb-1">
-                      Fecha de la Clase <span className="text-red-400">*</span>
+                      Modalidad de Separación
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setManualForm(prev => ({ ...prev, tipoReserva: 'UNICA' }))}
+                        className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          manualForm.tipoReserva === 'UNICA'
+                            ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-sm'
+                            : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
+                        }`}
+                      >
+                        📅 Única Vez
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setManualForm(prev => ({ ...prev, tipoReserva: 'RECURRENTE' }))}
+                        className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          manualForm.tipoReserva === 'RECURRENTE'
+                            ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-sm'
+                            : 'bg-white/5 border-white/10 text-white/60 hover:text-white'
+                        }`}
+                      >
+                        🔁 Recurrente
+                      </button>
+                    </div>
+                  </div>
+
+                  {manualForm.tipoReserva === 'UNICA' ? (
+                    <div>
+                      <label className="block text-[11px] font-bold text-white/80 mb-1">
+                        Fecha puntual <span className="text-red-400">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={manualForm.fecha}
+                        onChange={e => {
+                          const val = e.target.value
+                          const diaCalc = getDiaSemanaFromDate(val) || manualForm.diaSemana
+                          setManualForm(prev => ({ ...prev, fecha: val, diaSemana: diaCalc }))
+                        }}
+                        className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-xs focus:outline-none focus:border-emerald-400 cursor-pointer"
+                        required
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[11px] font-bold text-white/80 mb-1">
+                            Desde (Fecha) <span className="text-red-400">*</span>
+                          </label>
+                          <input
+                            type="date"
+                            value={manualForm.fechaInicio || hoyStr}
+                            onChange={e => {
+                              const val = e.target.value
+                              const diaCalc = getDiaSemanaFromDate(val) || manualForm.diaSemana
+                              setManualForm(prev => ({
+                                ...prev,
+                                fechaInicio: val,
+                                diaSemana: diaCalc,
+                                fechaFin: prev.fechaFin && prev.fechaFin < val ? val : prev.fechaFin
+                              }))
+                            }}
+                            className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-xs focus:outline-none focus:border-emerald-400 cursor-pointer"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-white/80 mb-1">
+                            Hasta (Fecha) <span className="text-red-400">*</span>
+                          </label>
+                          <input
+                            type="date"
+                            min={manualForm.fechaInicio || hoyStr}
+                            value={manualForm.fechaFin || SEMESTRE_CONFIG.fechaFin}
+                            onChange={e => setManualForm(prev => ({ ...prev, fechaFin: e.target.value }))}
+                            className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-xs focus:outline-none focus:border-emerald-400 cursor-pointer"
+                            required
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-teal-300 mt-1">
+                        🔁 Frecuencia: Cada <strong>{manualForm.diaSemana}</strong> (Semanas {calcularSemanaYUnidad(manualForm.fechaInicio)?.semana || 1} a {calcularSemanaYUnidad(manualForm.fechaFin)?.semana || 18})
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Asignatura y Motivo */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-white/80 mb-1">
+                      Asignatura o Actividad Académica
                     </label>
                     <input
-                      type="date"
-                      value={manualForm.fecha}
-                      onChange={e => setManualForm({
-                        ...manualForm,
-                        fecha: e.target.value,
-                        diaSemana: getDiaSemanaFromDate(e.target.value) || 'Lunes'
-                      })}
-                      className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-xs focus:outline-none focus:border-emerald-400 cursor-pointer"
-                      required
-                    />
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-[11px] font-bold text-white/80 mb-1">
-                          Día Semanal <span className="text-red-400">*</span>
-                        </label>
-                        <select
-                          value={manualForm.diaSemana}
-                          onChange={e => setManualForm({ ...manualForm, diaSemana: e.target.value })}
-                          className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white text-xs cursor-pointer focus:outline-none focus:border-emerald-400"
-                        >
-                          {DIAS_SEMANA.map(d => (
-                            <option key={d} value={d}>{d}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-bold text-white/80 mb-1 flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Desde (Fecha)</span>
-                          <span className="text-red-400">*</span>
-                        </label>
-                        <input
-                          type="date"
-                          value={manualForm.fechaInicio || hoyStr}
-                          onChange={e => {
-                            const val = e.target.value
-                            const diaCalc = getDiaSemanaFromDate(val) || manualForm.diaSemana
-                            setManualForm(prev => ({
-                              ...prev,
-                              fechaInicio: val,
-                              diaSemana: diaCalc,
-                              fechaFin: prev.fechaFin && prev.fechaFin < val ? val : prev.fechaFin
-                            }))
-                          }}
-                          className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-xs focus:outline-none focus:border-emerald-400 cursor-pointer"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-bold text-white/80 mb-1 flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5 text-teal-400" />
-                          <span>Hasta (Fecha)</span>
-                          <span className="text-red-400">*</span>
-                        </label>
-                        <input
-                          type="date"
-                          min={manualForm.fechaInicio || hoyStr}
-                          value={manualForm.fechaFin || SEMESTRE_CONFIG.fechaFin}
-                          onChange={e => setManualForm(prev => ({ ...prev, fechaFin: e.target.value }))}
-                          className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-xs focus:outline-none focus:border-emerald-400 cursor-pointer"
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    {/* Resumen del rango seleccionado */}
-                    <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/10 flex items-center justify-between text-[11px] text-white/70">
-                      <span className="flex items-center gap-1.5">
-                        <Repeat className="w-3 h-3 text-teal-400" />
-                        <span>Frecuencia: Cada <strong>{manualForm.diaSemana}</strong></span>
-                      </span>
-                      <span className="text-teal-300 font-mono text-[10px]">
-                        Semana {calcularSemanaYUnidad(manualForm.fechaInicio)?.semana || 1} a {calcularSemanaYUnidad(manualForm.fechaFin)?.semana || 18}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Horas */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-white/80 mb-1">Hora Inicio</label>
-                    <input
-                      type="time"
-                      value={manualForm.horaInicio}
-                      onChange={e => setManualForm({ ...manualForm, horaInicio: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-xs focus:outline-none focus:border-emerald-400"
-                      required
+                      type="text"
+                      value={manualForm.asignatura}
+                      onChange={e => setManualForm({ ...manualForm, asignatura: e.target.value })}
+                      placeholder="Ej. CI-565 Construcciones, Recuperación de Clase..."
+                      className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white text-xs focus:outline-none focus:border-emerald-400"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-white/80 mb-1">Hora Fin</label>
+                    <label className="block text-[11px] font-bold text-white/80 mb-1">
+                      Motivo de la Reserva o Tema a Tratar <span className="text-red-400">*</span>
+                    </label>
                     <input
-                      type="time"
-                      value={manualForm.horaFin}
-                      onChange={e => setManualForm({ ...manualForm, horaFin: e.target.value })}
-                      className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white font-mono text-xs focus:outline-none focus:border-emerald-400"
+                      type="text"
+                      value={manualForm.motivo}
+                      onChange={e => setManualForm({ ...manualForm, motivo: e.target.value })}
+                      placeholder="Ej. Práctica de laboratorio, ensayo de probetas..."
+                      className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white text-xs focus:outline-none focus:border-emerald-400"
                       required
                     />
                   </div>
@@ -1313,9 +1787,14 @@ export default function ReservasView({ isDarkMode = true }) {
                 {/* Indicador de Disponibilidad */}
                 <div>
                   {disponibilidadManual.disponible ? (
-                    <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Espacio 100% disponible. La reserva se confirmará automáticamente.</span>
+                    <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>Ambiente 100% disponible en este horario. La separación quedará confirmada de inmediato.</span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/30 text-emerald-200 font-black text-[9px] uppercase">
+                        LIBRE
+                      </span>
                     </div>
                   ) : (
                     <div className="p-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-300 text-[11px] flex items-start gap-2">
@@ -1325,46 +1804,19 @@ export default function ReservasView({ isDarkMode = true }) {
                   )}
                 </div>
 
-                {/* Asignatura y Motivo */}
-                <div>
-                  <label className="block text-[11px] font-bold text-white/80 mb-1">
-                    Asignatura o Actividad
-                  </label>
-                  <input
-                    type="text"
-                    value={manualForm.asignatura}
-                    onChange={e => setManualForm({ ...manualForm, asignatura: e.target.value })}
-                    placeholder="Ej. Taller de Tesis, Clase de Recuperación..."
-                    className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white text-xs focus:outline-none focus:border-emerald-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-white/80 mb-1">
-                    Motivo / Tema a Tratar <span className="text-red-400">*</span>
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={manualForm.motivo}
-                    onChange={e => setManualForm({ ...manualForm, motivo: e.target.value })}
-                    placeholder="Detalle de la asignación manual..."
-                    className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/20 text-white text-xs resize-none focus:outline-none focus:border-emerald-400"
-                    required
-                  />
-                </div>
-
-                <div className="pt-2 flex items-center justify-end gap-2">
+                {/* Footer Buttons */}
+                <div className="pt-2 flex items-center justify-end gap-2 border-t border-white/10">
                   <button
                     type="button"
                     onClick={() => setShowCreateModal(false)}
-                    className="px-4 py-2 rounded-xl bg-white/10 text-white/70 hover:text-white"
+                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white/70 hover:text-white cursor-pointer transition-all"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
                     disabled={savingManual || !disponibilidadManual.disponible}
-                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-bold disabled:opacity-50"
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-emerald-950/50 cursor-pointer transition-all"
                   >
                     {savingManual ? 'Guardando...' : 'Confirmar Separación'}
                   </button>

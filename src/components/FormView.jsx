@@ -7,7 +7,7 @@ import {
   StopCircle, ClipboardCheck, Hash, User, Send, Loader2, CheckCircle2,
   Bell, Timer, BellRing, Sun, Moon, Sparkles, Check, ChevronRight,
   Info, Plus, Minus, RotateCcw, RefreshCw, CalendarClock, ShieldCheck,
-  History, Wifi, WifiOff, PlusCircle, AlertTriangle, XCircle, ArrowLeft, DoorOpen, X
+  History, Wifi, WifiOff, PlusCircle, AlertTriangle, XCircle, ArrowLeft, DoorOpen, X, Siren
 } from 'lucide-react'
 import DigitalClock from './DigitalClock'
 import StartSessionModal from './StartSessionModal'
@@ -15,6 +15,9 @@ import SuccessModal from './SuccessModal'
 import OnboardingTour from './OnboardingTour'
 import TeacherHistoryModal from './TeacherHistoryModal'
 import DocenteReservaModal from './DocenteReservaModal'
+import DocenteSoporteModal from './DocenteSoporteModal'
+import NovedadesFloatingToast from './NovedadesFloatingToast'
+import { getLocalIncidencias } from '../services/incidenciasService'
 import { getLocalReservas } from '../services/reservasService'
 import { registrarSesion } from '../services/api'
 import { registrarInicioClase, registrarCierreClase, anularInicioClase, obtenerHorarioDocente } from '../services/adminApi'
@@ -395,6 +398,30 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
   const [showReservaModal, setShowReservaModal] = useState(false)
   const [misReservas, setMisReservas] = useState([])
   const [avisoReservaDismissed, setAvisoReservaDismissed] = useState(false)
+
+  // ── Módulo de Soporte en Aula & Incidencias (Docente) ──
+  const [showSoporteModal, setShowSoporteModal] = useState(false)
+  const [tieneIncidenciaActiva, setTieneIncidenciaActiva] = useState(false)
+
+  // ── Novedades del Sistema (Ventana Flotante al ingresar con autocierre de 10s) ──
+  const [showNovedadesToast, setShowNovedadesToast] = useState(() => {
+    return sessionStorage.getItem('epic_novedades_seen_v2.5') !== 'true'
+  })
+
+  useEffect(() => {
+    const checkIncidencias = () => {
+      const todas = getLocalIncidencias()
+      const dni = String(docente?.dni || '').trim()
+      const activa = todas.some(i => 
+        String(i.docenteDni || '').trim() === dni && 
+        (i.estado === 'NUEVO' || i.estado === 'EN_CAMINO')
+      )
+      setTieneIncidenciaActiva(activa)
+    }
+    checkIncidencias()
+    window.addEventListener('epic_incidencias_updated', checkIncidencias)
+    return () => window.removeEventListener('epic_incidencias_updated', checkIncidencias)
+  }, [docente])
 
   const actualizarMisReservas = useCallback(() => {
     try {
@@ -1960,6 +1987,52 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
         docente={docente}
         isDarkMode={isDarkMode}
       />
+
+      {/* ─── BOTÓN FLOTANTE: SOPORTE EN AULA (A LA DERECHA) ─── */}
+      <motion.button
+        type="button"
+        initial={{ opacity: 0, scale: 0.8, x: 20 }}
+        animate={{ opacity: 1, scale: 1, x: 0 }}
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        onClick={() => setShowSoporteModal(true)}
+        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-3 rounded-full bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs uppercase tracking-wider shadow-2xl shadow-red-950/80 ring-2 ring-red-400/60 cursor-pointer group"
+        title="Reportar problema técnico, PC, ecran o incidencia en aula"
+      >
+        <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center group-hover:animate-bounce relative">
+          <Siren className="w-4 h-4 text-white" />
+          {tieneIncidenciaActiva && (
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-300 animate-ping absolute -top-0.5 -right-0.5" />
+          )}
+        </div>
+        <span>SOPORTE EN AULA</span>
+        {tieneIncidenciaActiva && (
+          <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-black font-black text-[9px] uppercase">
+            Activo
+          </span>
+        )}
+      </motion.button>
+
+      {/* ─── MODAL DE SOPORTE TÉCNICO EN AULA ─── */}
+      <DocenteSoporteModal
+        isOpen={showSoporteModal}
+        onClose={() => setShowSoporteModal(false)}
+        docente={docente}
+        aulaActual={formData.aula}
+        asignaturaActual={formData.asignatura}
+        isDarkMode={isDarkMode}
+      />
+
+      {/* ─── VENTANA FLOTANTE DE NOVEDADES (AUTO-CIERRE 10S) ─── */}
+      {showNovedadesToast && (
+        <NovedadesFloatingToast
+          isDarkMode={isDarkMode}
+          onClose={() => {
+            setShowNovedadesToast(false)
+            sessionStorage.setItem('epic_novedades_seen_v2.5', 'true')
+          }}
+        />
+      )}
 
       {/* ─── MODAL ÉXITO Y AUTO-CIERRE EN 10 SEGUNDOS ─── */}
       <SuccessModal

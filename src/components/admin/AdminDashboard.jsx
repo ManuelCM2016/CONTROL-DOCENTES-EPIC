@@ -16,7 +16,8 @@ import {
   Building2,
   Calendar,
   Radio,
-  DoorOpen
+  DoorOpen,
+  Siren
 } from 'lucide-react'
 import MonitoreoView from './MonitoreoView'
 import DashboardView from './DashboardView'
@@ -24,7 +25,9 @@ import HistorialGlobalView from './HistorialGlobalView'
 import DocentesView from './DocentesView'
 import HorariosView from './HorariosView'
 import ReservasView from './ReservasView'
+import IncidenciasAdminView from './IncidenciasAdminView'
 import { getLocalReservas } from '../../services/reservasService'
+import { getLocalIncidencias } from '../../services/incidenciasService'
 
 const AdminDashboard = ({
   adminUser,
@@ -36,6 +39,7 @@ const AdminDashboard = ({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [pendientesCount, setPendientesCount] = useState(0)
+  const [incidenciasCount, setIncidenciasCount] = useState(0)
 
   // Escuchar y actualizar contador de reservas pendientes en tiempo real
   useEffect(() => {
@@ -49,6 +53,18 @@ const AdminDashboard = ({
     return () => window.removeEventListener('epic_reservas_updated', updateCount)
   }, [])
 
+  // Escuchar incidencias activas (urgentes o SOS) en tiempo real
+  useEffect(() => {
+    const updateIncidencias = () => {
+      const all = getLocalIncidencias()
+      const urgentes = all.filter(i => (i.tipo === 'URGENTE' || i.urgente) && i.estado !== 'RESUELTO' && i.estado !== 'CANCELADO').length
+      setIncidenciasCount(urgentes)
+    }
+    updateIncidencias()
+    window.addEventListener('epic_incidencias_updated', updateIncidencias)
+    return () => window.removeEventListener('epic_incidencias_updated', updateIncidencias)
+  }, [])
+
   const navItems = useMemo(() => [
     {
       id: 'monitoreo',
@@ -58,6 +74,15 @@ const AdminDashboard = ({
       badge: 'LIVE',
       badgeColor: 'emerald',
       color: 'emerald'
+    },
+    {
+      id: 'incidencias',
+      label: 'Soporte & Incidencias',
+      subtitle: 'Atención en aula y fallas',
+      icon: Siren,
+      badge: incidenciasCount > 0 ? `${incidenciasCount} SOS` : null,
+      badgeColor: 'rose',
+      color: 'rose'
     },
     {
       id: 'reservas',
@@ -96,7 +121,7 @@ const AdminDashboard = ({
       icon: Calendar,
       color: 'amber'
     }
-  ], [pendientesCount])
+  ], [pendientesCount, incidenciasCount])
 
   const fechaHoy = new Date().toLocaleDateString('es-PE', {
     weekday: 'long',
@@ -227,7 +252,9 @@ const AdminDashboard = ({
                         <span className="font-bold text-xs">{item.label}</span>
                         {item.badge && (
                           <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black ${
-                            item.badgeColor === 'amber'
+                            item.badgeColor === 'rose' || item.badgeColor === 'red'
+                              ? 'bg-rose-500 text-white animate-pulse shadow-sm shadow-rose-500/50'
+                              : item.badgeColor === 'amber'
                               ? 'bg-amber-500 text-black animate-pulse'
                               : 'bg-emerald-500 text-black animate-pulse'
                           }`}>
@@ -321,7 +348,13 @@ const AdminDashboard = ({
                     <div className="flex-1 flex items-center justify-between text-left">
                       <span>{item.label}</span>
                       {item.badge && (
-                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-500 text-black">
+                        <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-black ${
+                          item.badgeColor === 'rose' || item.badgeColor === 'red'
+                            ? 'bg-rose-500 text-white animate-pulse'
+                            : item.badgeColor === 'emerald'
+                            ? 'bg-emerald-500 text-black animate-pulse'
+                            : 'bg-amber-500 text-black'
+                        }`}>
                           {item.badge}
                         </span>
                       )}
@@ -379,6 +412,9 @@ const AdminDashboard = ({
             >
               {currentSection === 'monitoreo' && (
                 <MonitoreoView isDarkMode={isDarkMode} />
+              )}
+              {currentSection === 'incidencias' && (
+                <IncidenciasAdminView isDarkMode={isDarkMode} />
               )}
               {currentSection === 'reservas' && (
                 <ReservasView isDarkMode={isDarkMode} />

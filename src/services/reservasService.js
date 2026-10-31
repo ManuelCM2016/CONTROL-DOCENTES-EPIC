@@ -297,11 +297,19 @@ export const obtenerReservas = async () => {
     const result = JSON.parse(text)
     if (result.success && Array.isArray(result.data)) {
       const incoming = result.data.map(normalizarReserva)
-      // Fusionar protegiendo datos locales válidos frente a datos corruptos de la nube
+      const serverIds = new Set(incoming.map(r => String(r.id).trim()))
+      const now = Date.now()
+
+      // Conservar solo reservas locales recién creadas (< 45s) en tránsito hacia la nube
+      const enTransito = localData.filter(loc => {
+        if (serverIds.has(String(loc.id).trim())) return false
+        const t = new Date(loc.fechaSolicitud || loc.timestamp).getTime()
+        return !isNaN(t) && (now - t) < 45000
+      })
+
       const map = new Map()
-      localData.forEach(r => map.set(r.id, r))
       incoming.forEach(inc => {
-        const local = map.get(inc.id)
+        const local = localData.find(l => l.id === inc.id)
         if (local) {
           const finalHIni = isHoraValida(inc.horaInicio) ? inc.horaInicio : (isHoraValida(local.horaInicio) ? local.horaInicio : inc.horaInicio)
           const finalHFin = isHoraValida(inc.horaFin) ? inc.horaFin : (isHoraValida(local.horaFin) ? local.horaFin : inc.horaFin)
@@ -315,6 +323,8 @@ export const obtenerReservas = async () => {
           map.set(inc.id, inc)
         }
       })
+      enTransito.forEach(t => map.set(t.id, t))
+
       const merged = Array.from(map.values()).map(normalizarReserva)
       // Guardar en caché sin disparar evento recursivo de actualización
       saveLocalReservas(merged, false)
