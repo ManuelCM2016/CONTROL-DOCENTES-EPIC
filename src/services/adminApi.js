@@ -259,17 +259,21 @@ export const obtenerHorarioDocente = async (dni) => {
 // CARGAR HORARIOS DEL SEMESTRE (POST action=cargar_horarios)
 // Envía todos los registros de horarios procesados al backend
 // ──────────────────────────────────────────────────
-export const cargarHorariosSemestre = async (horarios) => {
+export const cargarHorariosSemestre = async (payload) => {
   if (!GOOGLE_SCRIPT_URL) return { success: true, message: 'Mock: horarios cargados.' }
   try {
     // Timeout más largo para carga masiva (120s)
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 120000)
+    const bodyData = Array.isArray(payload)
+      ? { action: 'cargar_horarios', horarios: payload }
+      : { action: 'cargar_horarios', ...payload }
+
     const response = await fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       redirect: 'follow',
       signal: controller.signal,
-      body: JSON.stringify({ action: 'cargar_horarios', horarios }),
+      body: JSON.stringify(bodyData),
     })
     clearTimeout(timeoutId)
     const text = await response.text()
@@ -277,6 +281,22 @@ export const cargarHorariosSemestre = async (horarios) => {
   } catch (error) {
     console.warn('Error al cargar horarios:', error)
     if (error.name === 'AbortError') return { success: false, message: 'La carga tardó demasiado. Intenta con menos registros.' }
+    return { success: false, message: error.message }
+  }
+}
+
+// ──────────────────────────────────────────────────
+// OBTENER CONFIGURACIÓN DEL SEMESTRE (GET action=config_semestre)
+// ──────────────────────────────────────────────────
+export const obtenerConfigSemestre = async () => {
+  if (!GOOGLE_SCRIPT_URL) return { success: true, data: null }
+  try {
+    const url = `${GOOGLE_SCRIPT_URL}?action=config_semestre`
+    const response = await fetchGAS(url)
+    const text = await response.text()
+    return JSON.parse(text)
+  } catch (error) {
+    console.warn('Error al obtener config_semestre:', error)
     return { success: false, message: error.message }
   }
 }

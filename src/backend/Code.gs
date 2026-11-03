@@ -91,6 +91,40 @@ function normalizeDateStr(val, tz) {
   return str;
 }
 
+/**
+ * Normaliza nombres de docentes para matching inteligente:
+ * - Quita prefijos (DOCENTE:, MTRO., ING., DR., DRA., etc.)
+ * - Quita tildes, comas, puntos y espacios extras
+ */
+function normalizeNombreDocente(nombre) {
+  if (!nombre) return '';
+  var n = String(nombre).trim().toUpperCase();
+  n = n.replace(/^(DOCENTE:|MTRO\.|MTRA\.|ING\.|DR\.|DRA\.|MG\.|MGR\.|MSC\.|LIC\.|PROF\.|ARQ\.)\s*/gi, '');
+  n = n.replace(/[ÁÀÂÄ]/g, 'A').replace(/[ÉÈÊË]/g, 'E').replace(/[ÍÌÎÏ]/g, 'I')
+       .replace(/[ÓÒÔÖ]/g, 'O').replace(/[ÚÙÛÜ]/g, 'U').replace(/[Ñ]/g, 'N');
+  n = n.replace(/[,\.]/g, ' ');
+  n = n.replace(/\s+/g, ' ').trim();
+  return n;
+}
+
+/**
+ * Determina si dos nombres corresponden al mismo docente
+ */
+function coincideDocente(nombreA, nombreB) {
+  var nA = normalizeNombreDocente(nombreA);
+  var nB = normalizeNombreDocente(nombreB);
+  if (!nA || !nB) return false;
+  if (nA === nB) return true;
+  if (nA.indexOf(nB) !== -1 || nB.indexOf(nA) !== -1) return true;
+
+  var tokensA = nA.split(' ').filter(function(t) { return t.length > 2; });
+  var tokensB = nB.split(' ').filter(function(t) { return t.length > 2; });
+  if (tokensA.length === 0 || tokensB.length === 0) return false;
+
+  var coincidencias = tokensA.filter(function(t) { return tokensB.indexOf(t) !== -1; });
+  return coincidencias.length >= 2 && (coincidencias.length >= Math.min(tokensA.length, tokensB.length) - 1);
+}
+
 // ══════════════ doGet — BUSCAR DOCENTE + ADMIN ENDPOINTS ══════════════
 
 /**
@@ -160,6 +194,15 @@ function doGet(e) {
       const nombreDocente = (e.parameter.docente || '').trim();
       const dniDocente = (e.parameter.dni || '').trim();
       return createJsonResponse({ success: true, data: getHorarioDocente(nombreDocente, dniDocente) });
+    }
+
+    if (action === 'config_semestre') {
+      const prop = PropertiesService.getScriptProperties().getProperty('SEMESTRE_CONFIG');
+      let config = null;
+      if (prop) {
+        try { config = JSON.parse(prop); } catch (e) {}
+      }
+      return createJsonResponse({ success: true, data: config });
     }
 
     // ── Acciones DOCENTE (requieren id) ──
@@ -632,6 +675,7 @@ function doPost(e) {
     // ══════════════════════════════════════════
     // ACCIÓN: FORZAR CIERRE DE AULA (DIRECTORA)
     // Calcula hora de salida = horaInicio + duracionEstimadaMin
+    // Mantiene intacta la FECHA original de apertura del aula
     // ══════════════════════════════════════════
     if (actionPost === 'forzar_cierre' || actionPost === 'cerrar_remoto') {
       const dataExistente = sheet.getDataRange().getValues();
@@ -640,36 +684,76 @@ function doPost(e) {
       const targetFecha = String(payload.fecha || '').trim();
       const targetHoraInicio = String(payload.horaInicio || '').trim();
       const duracionMin = parseInt(payload.duracionEstimadaMin || 90, 10);
+      const targetFila = parseInt(payload.fila || -1, 10);
 
-      // Buscar la fila ACTIVA del docente
+      // 1. Buscar primero por número de fila directo si viene en el payload
       let filaTarget = -1;
-      for (let i = dataExistente.length - 1; i >= 1; i--) {
-        const row = dataExistente[i];
-        const rowDni = String(row[1]).trim().toUpperCase();
+      if (targetFila >= 2 && targetFila <= dataExistente.length) {
+        const rowAtFila = dataExistente[targetFila - 1];
+        const rowDni = String(rowAtFila[1]).trim().toUpperCase();
         const rowDniNorm = normalizeDni(rowDni);
-        const rowEstado = String(row[22] || '').trim().toUpperCase();
-        let rowFecha = row[8] instanceof Date
-          ? Utilities.formatDate(row[8], Session.getScriptTimeZone(), 'yyyy-MM-dd')
-          : String(row[8] || '').trim();
-        let rowHoraInicio = row[15] instanceof Date
-          ? Utilities.formatDate(row[15], Session.getScriptTimeZone(), 'HH:mm:ss')
-          : String(row[15] || '').trim();
+        const rowEstado = String(rowAtFila[22] || '').trim().toUpperCase();
+        if ((targetDni === '' || rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm)) && rowEstado === 'ACTIVO') {
+          filaTarget = targetFila;
+        }
+      }
 
-        const mismoDocente = (rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm));
-        const mismaFecha = (targetFecha === '' || rowFecha === targetFecha);
-        const mismaHora = (targetHoraInicio === '' || rowHoraInicio === targetHoraInicio);
+      // 2. Si no se encontró por fila directa, buscar iterando en dataExistente
+      if (filaTarget === -1) {
+        for (let i = dataExistente.length - 1; i >= 1; i--) {
+          const row = dataExistente[i];
+          const rowDni = String(row[1]).trim().toUpperCase();
+          const rowDniNorm = normalizeDni(rowDni);
+          const rowEstado = String(row[22] || '').trim().toUpperCase();
+          let rowFecha = normalizeDateStr(row[8], Session.getScriptTimeZone());
+          if (!rowFecha && row[0]) {
+            rowFecha = normalizeDateStr(row[0], Session.getScriptTimeZone());
+          }
+          let rowHoraInicio = row[15] instanceof Date
+            ? Utilities.formatDate(row[15], Session.getScriptTimeZone(), 'HH:mm:ss')
+            : String(row[15] || '').trim();
 
-        if (mismoDocente && mismaFecha && mismaHora && rowEstado === 'ACTIVO') {
-          filaTarget = i + 1;
-          break;
+          const mismoDocente = (rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm));
+          const mismaFecha = (targetFecha === '' || rowFecha === targetFecha);
+          const mismaHora = (targetHoraInicio === '' || rowHoraInicio === targetHoraInicio);
+
+          if (mismoDocente && mismaFecha && mismaHora && rowEstado === 'ACTIVO') {
+            filaTarget = i + 1;
+            break;
+          }
+        }
+      }
+
+      // 3. Fallback: buscar solo por docente + estado ACTIVO si aún no se encontró
+      if (filaTarget === -1) {
+        for (let i = dataExistente.length - 1; i >= 1; i--) {
+          const row = dataExistente[i];
+          const rowDni = String(row[1]).trim().toUpperCase();
+          const rowDniNorm = normalizeDni(rowDni);
+          const rowEstado = String(row[22] || '').trim().toUpperCase();
+          const mismoDocente = (rowDni === targetDni || (rowDniNorm !== '' && rowDniNorm === targetDniNorm));
+          if (mismoDocente && rowEstado === 'ACTIVO') {
+            filaTarget = i + 1;
+            break;
+          }
         }
       }
 
       if (filaTarget !== -1 && filaTarget <= sheet.getLastRow()) {
+        const rowData = sheet.getRange(filaTarget, 1, 1, 23).getValues()[0];
+        
+        // Obtener hora inicio real de la fila si el payload no lo tenía
+        let horaIniReal = targetHoraInicio;
+        if (!horaIniReal) {
+          horaIniReal = rowData[15] instanceof Date
+            ? Utilities.formatDate(rowData[15], Session.getScriptTimeZone(), 'HH:mm:ss')
+            : String(rowData[15] || '').trim();
+        }
+
         // Calcular hora de salida = horaInicio + duracionEstimadaMin
         let horaFinCalculada = '';
         try {
-          const hParts = targetHoraInicio.split(':');
+          const hParts = horaIniReal.split(':');
           if (hParts.length >= 2) {
             const startDate = new Date();
             startDate.setHours(parseInt(hParts[0], 10), parseInt(hParts[1], 10), parseInt(hParts[2] || 0, 10));
@@ -682,7 +766,19 @@ function doPost(e) {
           horaFinCalculada = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'HH:mm:ss');
         }
 
-        const obsActual = String(sheet.getRange(filaTarget, 20).getValue() || '');
+        // PRESERVAR O RESTAURAR LA FECHA ORIGINAL DEL REGISTRO (COLUMNA I / Col 9)
+        let fechaOriginalEnFila = normalizeDateStr(rowData[8], Session.getScriptTimeZone());
+        if (!fechaOriginalEnFila && rowData[0]) {
+          fechaOriginalEnFila = normalizeDateStr(rowData[0], Session.getScriptTimeZone());
+        }
+        if (!fechaOriginalEnFila && targetFecha) {
+          fechaOriginalEnFila = targetFecha;
+        }
+        if (fechaOriginalEnFila) {
+          sheet.getRange(filaTarget, 9).setValue(fechaOriginalEnFila); // Col I: Asegurar fecha original preservada
+        }
+
+        const obsActual = String(rowData[19] || '');
         const motivo = payload.motivo || 'Sesión cerrada remotamente por Dirección Académica';
         const nuevoObs = (obsActual ? obsActual + ' | ' : '') + motivo;
         
@@ -693,7 +789,7 @@ function doPost(e) {
         return createJsonResponse({
           success: true,
           message: 'Aula liberada. Hora de salida calculada: ' + horaFinCalculada,
-          data: { fila: filaTarget, horaFin: horaFinCalculada }
+          data: { fila: filaTarget, horaFin: horaFinCalculada, fecha: fechaOriginalEnFila }
         });
       } else {
         return createJsonResponse({
@@ -756,10 +852,10 @@ function doPost(e) {
 
     // ══════════════════════════════════════════
     // ACCIÓN: CARGAR HORARIOS DEL SEMESTRE (DIRECTORA)
-    // Recibe array de registros y reemplaza toda la pestaña HORARIOS
+    // Recibe registros, sincroniza cursos de docentes y registra nuevos
     // ══════════════════════════════════════════
     if (actionPost === 'cargar_horarios') {
-      const registros = payload.horarios || [];
+      const registros = Array.isArray(payload) ? payload : (payload.horarios || []);
       if (!Array.isArray(registros) || registros.length === 0) {
         return createJsonResponse({
           success: false,
@@ -807,11 +903,116 @@ function doPost(e) {
       headerRange.setBackground('#1a73e8');
       headerRange.setFontColor('#ffffff');
       sheetH.setFrozenRows(1);
+
+      // Guardar configuración del semestre si se envió
+      if (payload.configSemestre) {
+        try {
+          PropertiesService.getScriptProperties().setProperty('SEMESTRE_CONFIG', JSON.stringify(payload.configSemestre));
+        } catch (propErr) {
+          Logger.log('Error guardando SEMESTRE_CONFIG: ' + propErr.message);
+        }
+      }
+
+      // Sincronizar docentes con sus nuevos cursos
+      let docentesActualizados = 0;
+      let docentesNuevosAgregados = 0;
+      if (payload.actualizarCursosDocentes !== false) {
+        try {
+          // 1. Agrupar cursos por docente desde los horarios cargados
+          const cursosPorDocente = {};
+          registros.forEach(function(r) {
+            const doc = String(r.DOCENTE || r.docente || '').trim();
+            if (!doc) return;
+            const curso = String(r.CURSO || r.curso || '').trim();
+            const codigo = String(r.CODIGO || r.codigo || '').trim();
+            const seccion = String(r.SECCION || r.seccion || '').trim();
+            const label = codigo ? (codigo + ' ' + curso + (seccion ? ' - ' + seccion : '')) : (curso + (seccion ? ' - ' + seccion : ''));
+            if (!cursosPorDocente[doc]) {
+              cursosPorDocente[doc] = [];
+            }
+            if (cursosPorDocente[doc].indexOf(label) === -1) {
+              cursosPorDocente[doc].push(label);
+            }
+          });
+
+          const sheetDoc = getSheet(HOJA_DOCENTES);
+          const dataDoc = sheetDoc.getDataRange().getValues();
+          const listaDocsKeys = Object.keys(cursosPorDocente);
+
+          // 2. Actualizar cursos de docentes existentes
+          for (let i = 1; i < dataDoc.length; i++) {
+            const rowNombre = String(dataDoc[i][2] || '').trim();
+            if (!rowNombre) continue;
+
+            // Buscar si coincide con alguno de los docentes del horario
+            let matchKey = null;
+            for (let k = 0; k < listaDocsKeys.length; k++) {
+              if (coincideDocente(rowNombre, listaDocsKeys[k])) {
+                matchKey = listaDocsKeys[k];
+                break;
+              }
+            }
+
+            if (matchKey && cursosPorDocente[matchKey]) {
+              const nuevosCursosStr = cursosPorDocente[matchKey].join(', ');
+              sheetDoc.getRange(i + 1, 7).setValue(nuevosCursosStr);
+              docentesActualizados++;
+            }
+          }
+
+          // 3. Registrar docentes nuevos si fueron proporcionados
+          if (Array.isArray(payload.docentesNuevos) && payload.docentesNuevos.length > 0) {
+            payload.docentesNuevos.forEach(function(dNuevo) {
+              const dniNuevo = String(dNuevo.dni || '').trim();
+              const nombreNuevo = String(dNuevo.nombre || '').trim();
+              if (!dniNuevo && !nombreNuevo) return;
+
+              // Verificar si ya existe por DNI o por nombre
+              const dniNormNuevo = normalizeDni(dniNuevo);
+              let yaExiste = false;
+              for (let j = 1; j < dataDoc.length; j++) {
+                const dniExistente = normalizeDni(String(dataDoc[j][0] || ''));
+                const nomExistente = String(dataDoc[j][2] || '').trim();
+                if ((dniNormNuevo && dniExistente === dniNormNuevo) || coincideDocente(nomExistente, nombreNuevo)) {
+                  yaExiste = true;
+                  const cursosParaDoc = dNuevo.cursos || (cursosPorDocente[nombreNuevo] ? cursosPorDocente[nombreNuevo].join(', ') : '');
+                  if (cursosParaDoc) {
+                    sheetDoc.getRange(j + 1, 7).setValue(cursosParaDoc);
+                  }
+                  break;
+                }
+              }
+
+              if (!yaExiste && dniNuevo) {
+                const cursosParaDoc = dNuevo.cursos || (cursosPorDocente[nombreNuevo] ? cursosPorDocente[nombreNuevo].join(', ') : '');
+                sheetDoc.appendRow([
+                  dniNuevo,
+                  dniNuevo,
+                  nombreNuevo,
+                  'FACULTAD DE INGENIERÍA',
+                  'ESCUELA PROFESIONAL DE INGENIERÍA CIVIL',
+                  'INGENIERÍA CIVIL',
+                  cursosParaDoc
+                ]);
+                docentesNuevosAgregados++;
+              }
+            });
+          }
+        } catch (docSyncErr) {
+          Logger.log('Advertencia sincronizando docentes: ' + docSyncErr.message);
+        }
+      }
       
       return createJsonResponse({
         success: true,
-        message: 'Horarios cargados exitosamente: ' + registros.length + ' registros.',
-        data: { totalRegistros: registros.length }
+        message: 'Horarios cargados: ' + registros.length + ' registros. ' +
+                 (docentesActualizados > 0 ? ('Docentes sincronizados: ' + docentesActualizados + '. ') : '') +
+                 (docentesNuevosAgregados > 0 ? ('Nuevos docentes registrados: ' + docentesNuevosAgregados + '.') : ''),
+        data: { 
+          totalRegistros: registros.length,
+          docentesActualizados: docentesActualizados,
+          docentesNuevosAgregados: docentesNuevosAgregados
+        }
       });
     }
 
@@ -1210,7 +1411,7 @@ function getMonitoreoActivo(fechaFiltro) {
       docente: String(row[2] || ''),
       aula: String(row[7] || ''),
       asignatura: String(row[9] || ''),
-      fecha: fechaStr || hoy,
+      fecha: fechaStr || (row[0] ? normalizeDateStr(row[0], tz) : hoy),
       horaInicio: horaInicioRaw,
       horaFin: horaFinRaw,
       duracionEstimadaMin: duracionEstimadaMin,

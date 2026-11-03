@@ -27,9 +27,17 @@ import {
 } from 'lucide-react'
 import { obtenerMonitoreo, forzarCierreSesionAdmin } from '../../services/adminApi'
 
+// Obtener fecha local actual en formato YYYY-MM-DD (sin desfase UTC)
+const getFechaLocalPeru = (d = new Date()) => {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 const MonitoreoView = ({ isDarkMode }) => {
   const [data, setData] = useState({
-    fecha: new Date().toISOString().split('T')[0],
+    fecha: getFechaLocalPeru(),
     activas: [],
     completadasHoy: [],
     todosDocentes: []
@@ -77,46 +85,81 @@ const MonitoreoView = ({ isDarkMode }) => {
     return () => clearInterval(timer)
   }, [fetchData])
 
-  // Calcular tiempo transcurrido desde la hora de inicio
-  const getTiempoTranscurrido = (horaInicio) => {
+  // Calcular tiempo transcurrido desde la hora de inicio considerando la fecha de la sesión
+  const getTiempoTranscurrido = (horaInicio, fechaSesion) => {
     if (!horaInicio) return '--'
     try {
       const parts = horaInicio.split(':')
       if (parts.length < 2) return horaInicio
-      const start = new Date()
-      start.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), parseInt(parts[2] || 0, 10))
+      
       const now = new Date()
-      const diffMs = now - start
+      let start = new Date()
+
+      // Si tenemos la fecha de la sesión (YYYY-MM-DD), construir el Date completo con fecha y hora
+      if (fechaSesion && /^\d{4}-\d{2}-\d{2}$/.test(String(fechaSesion).trim())) {
+        const [y, m, d] = String(fechaSesion).trim().split('-').map(Number)
+        start = new Date(y, m - 1, d, parseInt(parts[0], 10), parseInt(parts[1], 10), parseInt(parts[2] || 0, 10))
+      } else {
+        start.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), parseInt(parts[2] || 0, 10))
+      }
+
+      const diffMs = now.getTime() - start.getTime()
+      
+      // Si la diferencia es levemente negativa (< 60s), es un desfase mínimo de reloj del equipo
+      if (diffMs < 0 && Math.abs(diffMs) < 60000) {
+        return '1 min en clase'
+      }
+      
+      // Si la hora de inicio está en el futuro para hoy
       if (diffMs < 0) return 'Iniciando...'
+      
       const diffMins = Math.floor(diffMs / (1000 * 60))
-      const horas = Math.floor(diffMins / 60)
+      const horasTotales = Math.floor(diffMins / 60)
       const mins = diffMins % 60
-      if (horas > 0) return `${horas}h ${mins}m en clase`
+
+      if (horasTotales >= 24) {
+        const dias = Math.floor(horasTotales / 24)
+        const horasRest = horasTotales % 24
+        return `+${dias}d ${horasRest}h en clase`
+      }
+      if (horasTotales > 0) return `${horasTotales}h ${mins}m en clase`
       return `${mins} min en clase`
     } catch {
       return horaInicio
     }
   }
 
-  // Calcular si la sesión excedió su duración estimada
-  const getExcesoInfo = (horaInicio, duracionEstimadaMin) => {
+  // Calcular si la sesión excedió su duración estimada considerando la fecha de la sesión
+  const getExcesoInfo = (horaInicio, duracionEstimadaMin, fechaSesion) => {
     if (!horaInicio) return null
     const durMin = parseInt(duracionEstimadaMin || 90, 10)
     try {
       const parts = horaInicio.split(':')
       if (parts.length < 2) return null
-      const start = new Date()
-      start.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), parseInt(parts[2] || 0, 10))
+      
+      let start = new Date()
+      if (fechaSesion && /^\d{4}-\d{2}-\d{2}$/.test(String(fechaSesion).trim())) {
+        const [y, m, d] = String(fechaSesion).trim().split('-').map(Number)
+        start = new Date(y, m - 1, d, parseInt(parts[0], 10), parseInt(parts[1], 10), parseInt(parts[2] || 0, 10))
+      } else {
+        start.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), parseInt(parts[2] || 0, 10))
+      }
+
       const finEstimado = new Date(start.getTime() + durMin * 60 * 1000)
       const now = new Date()
+      const hoyStr = getFechaLocalPeru()
+      const esFechaAnterior = fechaSesion && String(fechaSesion).trim() < hoyStr
+
+      const hFin = finEstimado.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      const fechaFinLabel = esFechaAnterior ? `${finEstimado.getDate()}/${finEstimado.getMonth() + 1} ` : ''
+
       if (now > finEstimado) {
         const excesoMs = now - finEstimado
         const excesoMin = Math.floor(excesoMs / (1000 * 60))
-        const hFin = finEstimado.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
-        return { excedida: true, excesoMin, horaFinEstimada: hFin }
+        return { excedida: true, excesoMin, horaFinEstimada: `${fechaFinLabel}${hFin}`, esAnterior: esFechaAnterior }
       }
-      const hFin = finEstimado.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
-      return { excedida: false, excesoMin: 0, horaFinEstimada: hFin }
+      const hFinLabel = `${fechaFinLabel}${hFin}`
+      return { excedida: false, excesoMin: 0, horaFinEstimada: hFinLabel, esAnterior: esFechaAnterior }
     } catch {
       return null
     }
@@ -137,15 +180,16 @@ const MonitoreoView = ({ isDarkMode }) => {
     }
   }
 
-  // Handler para forzar cierre de aula
+  // Handler para forzar cierre de aula preservando la fecha original
   const handleForzarCierre = async () => {
     if (!cierreModal) return
     setIsCerrando(true)
     try {
       const durMin = parseInt(cierreModal.duracionEstimadaMin || 90, 10)
       const res = await forzarCierreSesionAdmin({
+        fila: cierreModal.fila,
         dni: cierreModal.dni,
-        fecha: cierreModal.fecha || new Date().toISOString().split('T')[0],
+        fecha: cierreModal.fecha || getFechaLocalPeru(),
         horaInicio: cierreModal.horaInicio,
         duracionEstimadaMin: durMin,
         motivo: 'Sesión cerrada remotamente por Dirección Académica (Inconclusa)',
@@ -480,6 +524,14 @@ const MonitoreoView = ({ isDarkMode }) => {
                       </div>
                     </div>
 
+                    {/* Alerta si la clase fue abierta en un día anterior */}
+                    {sesion.fecha && sesion.fecha !== (data.fecha || getFechaLocalPeru()) && (
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] font-bold mb-3">
+                        <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>Clase del {sesion.fecha} (Día anterior pendiente de cierre)</span>
+                      </div>
+                    )}
+
                     {/* Footer con Horas & Tiempo transcurrido */}
                     <div className="pt-3 border-t border-white/10 space-y-2">
                       <div className="flex items-center justify-between text-xs">
@@ -490,13 +542,13 @@ const MonitoreoView = ({ isDarkMode }) => {
                           </span>
                         </div>
                         <div className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold font-mono">
-                          ⏱️ {getTiempoTranscurrido(sesion.horaInicio)}
+                          ⏱️ {getTiempoTranscurrido(sesion.horaInicio, sesion.fecha)}
                         </div>
                       </div>
 
                       {/* ⚠️ Alerta visual de exceso de duración */}
                       {(() => {
-                        const exceso = getExcesoInfo(sesion.horaInicio, sesion.duracionEstimadaMin)
+                        const exceso = getExcesoInfo(sesion.horaInicio, sesion.duracionEstimadaMin, sesion.fecha)
                         if (!exceso) return null
                         return exceso.excedida ? (
                           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-950/50 border border-red-500/40 text-red-300 animate-pulse">
@@ -751,6 +803,12 @@ const MonitoreoView = ({ isDarkMode }) => {
                     <MapPin className="w-3.5 h-3.5 text-emerald-400" />
                     <span className="text-xs font-medium text-slate-300">{cierreModal.aula}</span>
                   </div>
+                  <div className="flex items-center gap-2 pt-1 border-t border-white/10">
+                    <Calendar className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="text-xs font-bold text-amber-300">
+                      Fecha de clase: {cierreModal.fecha || 'Fecha original de apertura'}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Hora calculada */}
@@ -767,7 +825,7 @@ const MonitoreoView = ({ isDarkMode }) => {
                 </div>
 
                 <p className="text-[11px] text-white/40">
-                  Se registrará la hora de salida calculada y la sesión pasará a estado COMPLETADO con observación de cierre forzado.
+                  Se registrará la hora de salida calculada manteniendo la fecha original de la clase ({cierreModal.fecha || 'original'}) y la sesión pasará a estado COMPLETADO.
                 </p>
               </div>
 

@@ -216,9 +216,17 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
     }
   }, [])
 
+  // Obtener fecha local actual en formato YYYY-MM-DD sin desfase UTC
+  const getFechaLocal = useCallback((d = new Date()) => {
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }, [])
+
   // ── Inicializador de datos del formulario con automatizaciones ──
   const getAutomatedInitialFormData = useCallback(() => {
-    const hoy = new Date().toISOString().split('T')[0]
+    const hoy = getFechaLocal()
     const infoSemestre = calcularSemanaYUnidad(hoy)
     const numeroRegistro = getSiguienteNumeroRegistro(docente.dni || docente.codigo)
     const savedAula = localStorage.getItem('upt_last_aula') || ''
@@ -244,7 +252,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
   // ── Estado del formulario ──
   const [formData, setFormData] = useState(() => {
     const saved = loadFormData()
-    const hoy = new Date().toISOString().split('T')[0]
+    const hoy = getFechaLocal()
     if (saved && saved.horaInicio) {
       // Si la sesión guardada es de un día anterior y ya estaba finalizada, empezar con formulario limpio
       if (saved.fecha && saved.fecha !== hoy && saved.horaFinalizacion) {
@@ -258,7 +266,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
   // Derivar sessionState
   const [sessionState, setSessionState] = useState(() => {
     const saved = loadFormData()
-    const hoy = new Date().toISOString().split('T')[0]
+    const hoy = getFechaLocal()
     if (saved?.horaFinalizacion && saved?.fecha === hoy) return 'finished'
     if (saved?.horaInicio && saved?.fecha === hoy) return 'started'
     return 'idle'
@@ -267,7 +275,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
   // ── Al cambiar docente o montar: asegurar aislamiento de datos ──
   useEffect(() => {
     const saved = loadFormData()
-    const hoy = new Date().toISOString().split('T')[0]
+    const hoy = getFechaLocal()
     if (saved && saved.horaInicio) {
       // Si la sesión guardada era de un día anterior y ya estaba terminada, iniciar limpio
       if (saved.fecha && saved.fecha !== hoy && saved.horaFinalizacion) {
@@ -580,7 +588,7 @@ const FormView = ({ docente, onLogout, showToast, saveFormData, loadFormData, is
       second: '2-digit',
       hour12: false,
     })
-    const today = new Date().toISOString().split('T')[0]
+    const today = getFechaLocal()
     const totalMinutos = (parseInt(duracionHoras, 10) || 0) * 60 + (parseInt(duracionMinutos, 10) || 0)
 
     const updated = { ...formData, horaInicio: now }
